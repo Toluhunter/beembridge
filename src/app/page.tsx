@@ -73,7 +73,8 @@ const App = () => {
       try {
         // Assuming you'll add an IPC handler for this in main.ts
         // For now, let's generate client-side and just update the state
-        const newId = `BB_USER_${crypto.randomUUID().replace(/-/g, '').substring(0, 10).toUpperCase()}`;
+        const newId = await window.electron.generateNewUserId(); // This would trigger the main process to generate a new ID
+        // const newId = `BB_USER_${crypto.randomUUID().replace(/-/g, '').substring(0, 10).toUpperCase()}`;
         setUserId(newId); // Update local state
         // You'll need to add window.electron.setUserId(newId) and an ipcMain.handle in main.ts
         console.log("New User ID generated locally (add IPC for persistence):", newId);
@@ -96,6 +97,8 @@ const App = () => {
       const loadUsername = async () => {
         try {
           const loadedUsername = await window.electron.getUsername();
+          const loadedUserId = await window.electron.getUserId();
+          setUserId(loadedUserId);
           setUserName(loadedUsername);
         } catch (error) {
           console.error('Failed to get username:', error);

@@ -18,10 +18,11 @@ export interface DiscoveredPeer extends DiscoveryMessage { // Exported for use i
     lastSeen: number; // Timestamp when the last beacon from this peer was received
     ipAddress: string; // The IP address of the peer (from the UDP packet)
 }
-
 export const PeerView = () => {
     // State to manage the list of discovered peers
-    const [peers, setPeers] = useState<DiscoveredPeer[]>([]);
+    const [discoveredPeers, setDiscoveredPeers] = useState<DiscoveredPeer[]>([]);
+    // State to manage the list of connected peers
+    const [connectedPeers, setConnectedPeers] = useState<DiscoveredPeer[]>([]);
     // State to control the sonar animation and discovery mode
     const [isDiscovering, setIsDiscovering] = useState(false);
 
@@ -31,12 +32,13 @@ export const PeerView = () => {
             console.log('Electron API is available in the renderer!');
 
             // --- Listener for replies from Main Process ---
-            // This will update the peers state when new peer information is received
-            const cleanup = window.electron.onPeerUpdate((_event, peers) => {
-                setPeers(peers);
-                // If peers are found, and we were in discovery mode, we might want to stop the animation
-                if (peers.length > 0 && isDiscovering) {
-                    setIsDiscovering(false); // Stop discovery animation once peers are found
+            // This will update the discoveredPeers state when new peer information is received
+            const cleanup = window.electron.onPeerUpdate((_event, newPeers) => {
+                setDiscoveredPeers(newPeers);
+
+                // If new peers are found, and we were in discovery mode, stop the animation
+                if (newPeers.length > 0 && isDiscovering) {
+                    setIsDiscovering(false);
                 }
             });
 
@@ -49,7 +51,6 @@ export const PeerView = () => {
                     console.error('Failed to get app version:', error);
                 }
             };
-
             fetchAppVersion();
 
             // Cleanup function to remove the listener when component unmounts
@@ -59,7 +60,7 @@ export const PeerView = () => {
         } else {
             console.warn('Electron API is NOT available in the renderer. Are you running in Electron?');
         }
-    }, [isDiscovering]); // Add isDiscovering to dependencies to re-evaluate when it changes
+    }, [isDiscovering, connectedPeers]); // Add connectedPeers to dependencies for accurate filtering
 
     /**
      * Initiates the peer discovery process.
@@ -68,10 +69,9 @@ export const PeerView = () => {
      * to prevent it from running indefinitely.
      */
     const startDiscovery = () => {
+        setIsDiscovering(true);
         if (window.electron) {
-            setIsDiscovering(true);
             console.log('Starting peer discovery...');
-            // Start sonar animation
             window.electron.startPeerDiscovery();
 
             // Set a timeout to stop discovery animation after 10 seconds
@@ -87,8 +87,27 @@ export const PeerView = () => {
         }
     };
 
+    /**
+     * Handles the action to connect to a discovered peer.
+     * Moves the peer from the discovered list to the connected list.
+     * @param peerToConnect The peer object to connect to.
+     */
+    const handleConnect = (peerToConnect: DiscoveredPeer) => {
+        // Simulate connecting: Remove from discovered, add to connected
+        setDiscoveredPeers(prev => prev.filter(p => p.instanceId !== peerToConnect.instanceId));
+        setConnectedPeers(prev => {
+            // Prevent adding duplicates to connectedPeers
+            if (!prev.some(p => p.instanceId === peerToConnect.instanceId)) {
+                return [...prev, peerToConnect];
+            }
+            return prev;
+        });
+        console.log(`Attempting to connect to peer: ${peerToConnect.peerName} (${peerToConnect.instanceId})`);
+        // In a real Electron app, you'd call window.electron.connectToPeer(peerToConnect.ipAddress, peerToConnect.tcpPort);
+    };
+
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full p-6">
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-4xl font-bold text-white">Peers</h1>
                 {/* "Add Peer" button - Always visible now */}
@@ -97,44 +116,102 @@ export const PeerView = () => {
                 </button>
             </div>
 
-            {peers.length === 0 ? (
-                <div className="flex flex-col items-center justify-center flex-grow bg-gray-800 rounded-2xl border border-gray-700 p-8 text-center shadow-lg">
-                    <p className="text-gray-400 text-xl mb-8">
-                        {isDiscovering ? "Searching for peers..." : "No peers detected yet. Click the button to start finding others!"}
-                    </p>
-                    {/* Sonar animation container - always rendered, visibility controlled by opacity */}
-                    <div className={`relative w-48 h-48 mb-8 flex items-center justify-center transition-opacity duration-500 ${isDiscovering ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                        {/* Sonar base circle */}
-                        <div className="absolute w-full h-full bg-blue-600 rounded-full opacity-30"></div>
-                        {/* Sonar pulse effect - apply animation class conditionally */}
-                        <div className={`absolute w-full h-full bg-blue-600 rounded-full opacity-0 ${isDiscovering ? 'sonar-pulse' : ''}`}></div>
-                        {/* Inner core */}
-                        <div className="absolute w-24 h-24 bg-blue-700 rounded-full flex items-center justify-center text-white text-3xl font-bold">
-                            📡
-                        </div>
+            {/* Connected Peers Section */}
+            <div className="mb-8">
+                <h2 className="text-3xl font-semibold text-white mb-4">Connected Peers</h2>
+                {connectedPeers.length === 0 ? (
+                    <div className="bg-gray-800 rounded-2xl border border-gray-700 p-8 text-center shadow-lg">
+                        <p className="text-gray-400 text-lg">No peers currently connected.</p>
                     </div>
-                    <button
-                        className="modern-button text-white font-bold py-4 px-10 rounded-lg text-xl shadow-lg"
-                        onClick={startDiscovery}
-                        disabled={isDiscovering} // Disable button while discovering
-                    >
-                        {isDiscovering ? "Searching..." : "Find Peer"}
-                    </button>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {peers.map((peer) => (
-                        <div key={peer.instanceId} className="bg-gray-800 rounded-xl p-5 border border-gray-700 shadow-lg flex flex-col">
-                            <h3 className="text-xl font-semibold text-white mb-2">{peer.peerName}</h3>
-                            <p className="text-gray-400 text-sm mb-1">ID: {peer.instanceId}</p>
-                            <p className="text-gray-500 text-xs mt-auto pt-2">Last active: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
-                            <p className="text-gray-500 text-xs mt-auto pt-2">IP: {peer.ipAddress}</p>
-                            <p className="text-gray-500 text-xs mt-auto pt-2">Port: {peer.tcpPort}</p>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {connectedPeers.map((peer) => (
+                            <div key={peer.instanceId} className="bg-gray-800 rounded-xl p-5 border-2 border-green-500 shadow-lg flex flex-col items-start">
+                                <h3 className="text-xl font-semibold text-white mb-2">{peer.peerName} <span className="text-green-400 text-sm">(Connected)</span></h3>
+                                <p className="text-gray-400 text-sm mb-1">ID: {peer.instanceId}</p>
+                                <p className="text-gray-500 text-xs mt-auto pt-2">Last active: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
+                                <p className="text-gray-500 text-xs pt-0.5">IP: {peer.ipAddress}</p>
+                                <p className="text-gray-500 text-xs pt-0.5">Port: {peer.tcpPort}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Discovered Peers Section */}
+            <div>
+                <h2 className="text-3xl font-semibold text-white mb-4">Discovered Peers</h2>
+                {discoveredPeers.length === 0 && !isDiscovering ? (
+                    <div className="flex flex-col items-center justify-center bg-gray-800 rounded-2xl border border-gray-700 p-8 text-center shadow-lg">
+                        <p className="text-gray-400 text-xl mb-8">
+                            No peers detected yet. Click the button to start finding others!
+                        </p>
+                        <div className={`relative w-48 h-48 mb-8 flex items-center justify-center transition-opacity duration-500 ${isDiscovering ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                            <div className="absolute w-full h-full bg-blue-600 rounded-full opacity-30"></div>
+                            <div className={`absolute w-full h-full bg-blue-600 rounded-full opacity-0 ${isDiscovering ? 'sonar-pulse' : ''}`}></div>
+                            <div className="absolute w-24 h-24 bg-blue-700 rounded-full flex items-center justify-center text-white text-3xl font-bold">
+                                📡
+                            </div>
                         </div>
-                    ))}
-                </div>
-            )}
+                        <button
+                            className="modern-button text-white font-bold py-4 px-10 rounded-lg text-xl shadow-lg"
+                            onClick={startDiscovery}
+                            disabled={isDiscovering}
+                        >
+                            {isDiscovering ? "Searching..." : "Find Peer"}
+                        </button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {discoveredPeers.map((peer) => (
+                            <div key={peer.instanceId} className="bg-gray-800 rounded-xl p-5 border border-gray-700 shadow-lg flex flex-col items-start">
+                                <h3 className="text-xl font-semibold text-white mb-2">{peer.peerName}</h3>
+                                <p className="text-gray-400 text-sm mb-1">ID: {peer.instanceId}</p>
+                                <p className="text-gray-500 text-xs mt-auto pt-2">Last active: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
+                                <p className="text-gray-500 text-xs pt-0.5">IP: {peer.ipAddress}</p>
+                                <p className="text-gray-500 text-xs pt-0.5">Port: {peer.tcpPort}</p>
+                                <button
+                                    className="modern-button mt-4 w-full py-2 px-4 text-white font-bold rounded-lg shadow-md"
+                                    onClick={() => handleConnect(peer)}
+                                >
+                                    Connect
+                                </button>
+                            </div>
+                        ))}
+                        {/* Show sonar animation if discovering and no peers are found yet in discovered list */}
+                        {isDiscovering && discoveredPeers.length === 0 && (
+                            <div className="flex flex-col items-center justify-center bg-gray-800 rounded-2xl border border-gray-700 p-8 text-center shadow-lg col-span-full">
+                                <p className="text-gray-400 text-xl mb-8">Searching for peers...</p>
+                                <div className={`relative w-48 h-48 mb-8 flex items-center justify-center transition-opacity duration-500 opacity-100`}>
+                                    <div className="absolute w-full h-full bg-blue-600 rounded-full opacity-30"></div>
+                                    <div className={`absolute w-full h-full bg-blue-600 rounded-full opacity-0 sonar-pulse`}></div>
+                                    <div className="absolute w-24 h-24 bg-blue-700 rounded-full flex items-center justify-center text-white text-3xl font-bold">
+                                        📡
+                                    </div>
+                                </div>
+                                <button
+                                    className="modern-button text-white font-bold py-4 px-10 rounded-lg text-xl shadow-lg"
+                                    onClick={startDiscovery}
+                                    disabled={isDiscovering}
+                                >
+                                    Searching...
+                                </button>
+                            </div>
+                        )}
+                        {/* Button to start discovery when peers are present in the discovered list, but not currently discovering */}
+                        {discoveredPeers.length > 0 && !isDiscovering && (
+                            <div className="col-span-full flex justify-center mt-6">
+                                <button
+                                    className="modern-button text-white font-bold py-4 px-10 rounded-lg text-xl shadow-lg"
+                                    onClick={startDiscovery}
+                                >
+                                    Re-scan for Peers
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
-
-}
+};

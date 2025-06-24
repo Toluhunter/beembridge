@@ -7,7 +7,7 @@ interface SettingsViewProps {
     // onUpdateUserName now directly interacts with the main process
     // It's a simpler signature as the logic for persistence is in this component
     onUpdateUserNameInMainProcess: (newName: string) => Promise<boolean>;
-    onGenerateNewUserId: () => void; // This will likely also interact with main process
+    onGenerateNewUserId: () => Promise<void>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -59,9 +59,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setTempUserName(currentUserName); // Revert to the last saved username
     };
 
-    const handleGenerateId = () => {
+    const handleGenerateId = async () => {
         // This will trigger the parent App component to update userId
-        onGenerateNewUserId();
+        await onGenerateNewUserId();
     };
 
     return (

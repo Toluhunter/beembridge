@@ -1,6 +1,6 @@
 // main.ts
 import { app, BrowserWindow, screen, ipcMain } from 'electron';
-import { startDiscovery } from './utilities/peer';
+import { startDiscovery } from './utilities/peerDiscovery';
 import * as path from 'path';
 import * as url from 'url';
 import * as dotenv from 'dotenv';

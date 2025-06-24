@@ -1,6 +1,6 @@
 // preload.ts
 import { contextBridge, ipcRenderer } from 'electron';
-import { DiscoveredPeer } from './utilities/peer';
+import { DiscoveredPeer } from './utilities/peerDiscovery';
 
 // Type definitions for the functions we'll expose to the renderer
 // This is good practice for TypeScript in the renderer process

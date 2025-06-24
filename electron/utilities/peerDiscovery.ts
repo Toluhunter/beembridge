@@ -38,7 +38,56 @@ let currentPeerName: string = 'Unknown Device';
 // --- Your App's Unique Identifiers ---
 const APP_ID = "MyAwesomeFileTransferApp";
 const INSTANCE_ID = Math.random().toString(36).substring(2, 15);
-export const MY_TCP_PORT = 12345; // Exported in case other modules need to know the listening port
+
+function getRandomPort(min = 49152, max = 65535, excludedPorts: number[] = []) {
+    let port: number;
+    do {
+        port = Math.floor(Math.random() * (max - min + 1)) + min;
+    } while (excludedPorts.includes(port));
+    return port;
+}
+
+// Example usage:
+const excluded = [
+    // Frequently-used ephemeral ports by apps or services
+    49152, // Start of dynamic range - may be chosen often
+    49153,
+    49154,
+    49155,
+    49156,
+    49157,
+    49158,
+    49159,
+    49160,
+
+    // Docker on Windows often uses these
+    49664,
+    49665,
+    49666,
+    49667,
+    49668,
+    49669,
+
+    // Windows RPC services commonly use:
+    49161, 49162, 49163, 49165, 49170,
+
+    // Debug and local testing tools may bind to these
+    50000, // Often used by Java debugging (JDWP)
+    50001,
+    50002,
+
+    // Kubernetes / container platforms
+    51000, // Some k8s components
+    55000, // Common for Windows Defender / internal APIs
+
+    // High ephemeral ports in use by testing tools or local frameworks
+    60000,
+    61000,
+    62000,
+    63000,
+    64000
+];
+export const MY_TCP_PORT = getRandomPort(49152, 65535, excluded);
 
 // --- Helper to get local IP addresses for broadcasting ---
 function getLocalIpAddresses(): string[] {
