@@ -9,6 +9,8 @@ declare global {
         electron: {
             startPeerDiscovery: () => void;
             onPeerUpdate: (callback: (event: Electron.IpcRendererEvent, peers: DiscoveredPeer[]) => void) => () => void;
+            onConnectionResponse: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, status: string, reason?: string) => void) => () => void;
+            connectToPeer: (peer: DiscoveredPeer) => void;
             getAppVersion: () => Promise<string>;
             getUsername: () => Promise<string>;
             setUsername: (newUsername: string) => Promise<boolean>;
@@ -36,6 +38,19 @@ contextBridge.exposeInMainWorld('electron', {
         return () => {
             ipcRenderer.removeListener('peer-update', callback);
         };
+    },
+
+    onConnectionResponse: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, status: string, reason?: string) => void): () => void => {
+        // Listen for 'connection-response' events from the main process
+        ipcRenderer.on('connect-to-peer-response', callback);
+        // Return a function to remove the listener when no longer needed
+        return () => {
+            ipcRenderer.removeListener('connection-response', callback);
+        };
+    },
+
+    connectToPeer: (peer: DiscoveredPeer): void => {
+        ipcRenderer.send('connect-to-peer', peer);
     },
 
     getAppVersion: async (): Promise<string> => {

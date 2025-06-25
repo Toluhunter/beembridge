@@ -1,6 +1,7 @@
 // main.ts
 import { app, BrowserWindow, screen, ipcMain } from 'electron';
-import { startDiscovery } from './utilities/peerDiscovery';
+import { DiscoveredPeer, startDiscovery } from './utilities/peerDiscovery';
+import { connectToPeer } from './utilities/peerConnection';
 import * as path from 'path';
 import * as url from 'url';
 import * as dotenv from 'dotenv';
@@ -60,6 +61,40 @@ function createWindow() {
         console.log("Peer discovery initiated from renderer request.");
     });
 
+    ipcMain.on('connect-to-peer', async (event, peer: DiscoveredPeer) => {
+        // This is where you would handle the connection logic to the peer
+        // For now, we just log it and return a success status
+        console.log(`Connecting to peer: ${peer.peerName} (${peer.ipAddress}:${peer.tcpPort})`);
+        // Simulate a successful connection
+        try {
+            connectToPeer(
+                peer,
+                (peer, status, reason) => {
+                    console.log(`[SENDER] Connection status with ${peer.peerName}: ${status}${reason ? ` (${reason})` : ''}`);
+                    event.sender.send('connect-to-peer-response', peer, status, reason);
+                },
+                (peer, socket) => {
+                    console.log(`[SENDER] Connection ESTABLISHED with ${peer.peerName}.`);
+                    socket.on('data', (data) => {
+                        try {
+                            const message = JSON.parse(data.toString());
+                            console.log(`[SENDER] Received message from ${peer.peerName}:`, message);
+                        } catch (e) {
+                            console.error("[SENDER] Error parsing data:", e);
+                        }
+                    });
+                },
+                peer.instanceId
+            );
+        }
+        catch (error) {
+            let errorMessage = 'Unknown error parsing data';
+            if (error instanceof Error) errorMessage = error.message;
+            console.error(`[TCP Client] Error parsing incoming data from ${peer.peerName}: ${errorMessage}`);
+            // event.sender.send('connect-to-peer-response', false, `Failed to connect: ${error.message}`);
+        }
+    });
+
     // Handler for two-way (invoke/handle) messages from renderer
     ipcMain.handle('get-app-version', async () => {
         // You can perform any Node.js operations here
@@ -92,6 +127,8 @@ function createWindow() {
         console.log('New User ID generated:', newUserId);
         return newUserId;
     });
+
+
 
 }
 

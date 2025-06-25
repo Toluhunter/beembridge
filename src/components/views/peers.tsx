@@ -25,6 +25,7 @@ export const PeerView = () => {
     const [connectedPeers, setConnectedPeers] = useState<DiscoveredPeer[]>([]);
     // State to control the sonar animation and discovery mode
     const [isDiscovering, setIsDiscovering] = useState(false);
+    const [connectingPeerId, setConnectingPeerId] = useState<string | null>(null);
 
     useEffect(() => {
         // Check if the 'electron' API is available
@@ -33,13 +34,21 @@ export const PeerView = () => {
 
             // --- Listener for replies from Main Process ---
             // This will update the discoveredPeers state when new peer information is received
-            const cleanup = window.electron.onPeerUpdate((_event, newPeers) => {
-                setDiscoveredPeers(newPeers);
+            const cleanup = window.electron.onPeerUpdate((_event, newDiscoveries) => {
+                const filteredDiscoveries = newDiscoveries.filter(
+                    newPeer => !connectedPeers.some(connectedPeer => connectedPeer.instanceId === newPeer.instanceId)
+                );
+                setDiscoveredPeers(filteredDiscoveries);
 
                 // If new peers are found, and we were in discovery mode, stop the animation
-                if (newPeers.length > 0 && isDiscovering) {
+                if (newDiscoveries.length > 0 && isDiscovering) {
                     setIsDiscovering(false);
                 }
+            });
+
+            const cleanupConnectionResponse = window.electron.onConnectionResponse((_event, peer, status, reason) => {
+                onConnectionResponse(peer, status, reason);
+                setConnectingPeerId(null);
             });
 
             // --- Fetch app version using invoke ---
@@ -56,11 +65,12 @@ export const PeerView = () => {
             // Cleanup function to remove the listener when component unmounts
             return () => {
                 cleanup(); // Call the cleanup function returned by onReplyFromMain
+                cleanupConnectionResponse(); // Clean up connection response listener
             };
         } else {
             console.warn('Electron API is NOT available in the renderer. Are you running in Electron?');
         }
-    }, [isDiscovering, connectedPeers]); // Add connectedPeers to dependencies for accurate filtering
+    }); // Add connectedPeers to dependencies for accurate filtering
 
     /**
      * Initiates the peer discovery process.
@@ -93,17 +103,43 @@ export const PeerView = () => {
      * @param peerToConnect The peer object to connect to.
      */
     const handleConnect = (peerToConnect: DiscoveredPeer) => {
-        // Simulate connecting: Remove from discovered, add to connected
-        setDiscoveredPeers(prev => prev.filter(p => p.instanceId !== peerToConnect.instanceId));
-        setConnectedPeers(prev => {
-            // Prevent adding duplicates to connectedPeers
-            if (!prev.some(p => p.instanceId === peerToConnect.instanceId)) {
-                return [...prev, peerToConnect];
-            }
-            return prev;
-        });
-        console.log(`Attempting to connect to peer: ${peerToConnect.peerName} (${peerToConnect.instanceId})`);
-        // In a real Electron app, you'd call window.electron.connectToPeer(peerToConnect.ipAddress, peerToConnect.tcpPort);
+        if (window.electron) {
+            setConnectingPeerId(peerToConnect.instanceId); // Set connecting state
+            console.log(`Attempting to connect to peer: ${peerToConnect.peerName} (${peerToConnect.instanceId})`);
+            window.electron.connectToPeer(peerToConnect);
+        } else {
+            console.warn('Electron API is NOT available. Cannot connect to peer.');
+            setConnectingPeerId(null); // Clear connecting state if Electron API is not available
+        }
+    };
+
+    const onConnectionResponse = (peer: DiscoveredPeer, status: string, reason?: string) => {
+        console.log(`[RECEIVER] Connection status with ${peer.peerName}: ${status}${reason ? ` (${reason})` : ''}`);
+        if (status === 'accepted') {
+            // Move peer from discovered to connected list
+            setConnectedPeers(prevConnected => {
+                // Prevent adding duplicates to connectedPeers
+                if (!prevConnected.some(p => p.instanceId === peer.instanceId)) {
+                    return [...prevConnected, peer];
+                }
+                return prevConnected;
+            });
+            // Remove peer from discovered list as it's now connected
+            setDiscoveredPeers(prevDiscovered => prevDiscovered.filter(p => p.instanceId !== peer.instanceId));
+            console.log("[RECEIVER] Connection ready! You can send data now.");
+        } else if (status === 'rejected' || status === 'failed') {
+            console.log("[RECEIVER] Connection failed or rejected. Please try another peer.");
+            // If connection failed, ensure the peer is back in discovered if it was attempting to connect
+            // This is primarily for cases where a peer might have been removed from discovered during the connecting state
+            setDiscoveredPeers(prevDiscovered => {
+                if (!prevDiscovered.some(p => p.instanceId === peer.instanceId) &&
+                    !connectedPeers.some(p => p.instanceId === peer.instanceId)) {
+                    return [...prevDiscovered, peer];
+                }
+                return prevDiscovered;
+            });
+        }
+        setConnectingPeerId(null); // Always clear the connecting state after a response
     };
 
     return (
@@ -164,7 +200,11 @@ export const PeerView = () => {
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {discoveredPeers.map((peer) => (
-                            <div key={peer.instanceId} className="bg-gray-800 rounded-xl p-5 border border-gray-700 shadow-lg flex flex-col items-start">
+                            <div
+                                key={peer.instanceId}
+                                className={`bg-gray-800 rounded-xl p-5 border border-gray-700 shadow-lg flex flex-col items-start
+                                    ${connectingPeerId === peer.instanceId ? 'connecting-animation' : ''}`}
+                            >
                                 <h3 className="text-xl font-semibold text-white mb-2">{peer.peerName}</h3>
                                 <p className="text-gray-400 text-sm mb-1">ID: {peer.instanceId}</p>
                                 <p className="text-gray-500 text-xs mt-auto pt-2">Last active: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
@@ -173,8 +213,19 @@ export const PeerView = () => {
                                 <button
                                     className="modern-button mt-4 w-full py-2 px-4 text-white font-bold rounded-lg shadow-md"
                                     onClick={() => handleConnect(peer)}
+                                    disabled={connectingPeerId === peer.instanceId} // Disable while connecting
                                 >
-                                    Connect
+                                    {connectingPeerId === peer.instanceId ? (
+                                        <span className="flex items-center justify-center">
+                                            <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Connecting...
+                                        </span>
+                                    ) : (
+                                        "Connect"
+                                    )}
                                 </button>
                             </div>
                         ))}
