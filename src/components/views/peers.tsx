@@ -24,6 +24,7 @@ export const PeerView = () => {
     // State to manage the list of connected peers
     const [connectedPeers, setConnectedPeers] = useState<DiscoveredPeer[]>([]);
     // State to control the sonar animation and discovery mode
+    const [incomingRequest, setIncomingRequest] = useState<{ peer: DiscoveredPeer, accept: () => void, reject: () => void } | null>(null);
     const [isDiscovering, setIsDiscovering] = useState(false);
     const [connectingPeerId, setConnectingPeerId] = useState<string | null>(null);
 
@@ -51,6 +52,10 @@ export const PeerView = () => {
                 setConnectingPeerId(null);
             });
 
+            const cleanupPeerConnectionRequest = window.electron.onPeerConnectionRequest((_event, peer, accept, reject) => {
+                setIncomingRequest({ peer, accept, reject });
+            });
+
             // --- Fetch app version using invoke ---
             const fetchAppVersion = async () => {
                 try {
@@ -66,6 +71,7 @@ export const PeerView = () => {
             return () => {
                 cleanup(); // Call the cleanup function returned by onReplyFromMain
                 cleanupConnectionResponse(); // Clean up connection response listener
+                cleanupPeerConnectionRequest();
             };
         } else {
             console.warn('Electron API is NOT available in the renderer. Are you running in Electron?');
@@ -83,6 +89,7 @@ export const PeerView = () => {
         if (window.electron) {
             console.log('Starting peer discovery...');
             window.electron.startPeerDiscovery();
+            window.electron.startTcpServer();
 
             // Set a timeout to stop discovery animation after 10 seconds
             // This is a fallback in case no peers are found to explicitly stop the animation
@@ -146,6 +153,47 @@ export const PeerView = () => {
         <div className="flex flex-col h-full p-6">
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-4xl font-bold text-white">Peers</h1>
+                {incomingRequest && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                        <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                            <h2 className="text-2xl font-bold text-white mb-4">Incoming Connection Request</h2>
+                            <p className="text-gray-300 mb-4">
+                                {incomingRequest.peer.peerName} ({incomingRequest.peer.ipAddress}:{incomingRequest.peer.tcpPort}) wants to connect.
+                            </p>
+                            <div className="flex justify-end">
+                                <button
+                                    className="mr-2 px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+                                    onClick={() => {
+                                        if (incomingRequest) {
+                                            incomingRequest.reject();
+                                            setIncomingRequest(null);
+                                        }
+                                    }}
+                                >
+                                    Reject
+                                </button>
+                                <button
+                                    className="px-4 py-2 rounded-lg bg-green-500 text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
+                                    onClick={() => {
+                                        if (incomingRequest) {
+                                            incomingRequest.accept();
+                                            setConnectedPeers(prevConnected => {
+                                                // Prevent adding duplicates to connectedPeers
+                                                if (!prevConnected.some(p => p.instanceId === incomingRequest.peer.instanceId)) {
+                                                    return [...prevConnected, incomingRequest.peer];
+                                                }
+                                                return prevConnected;
+                                            });
+                                            setIncomingRequest(null);
+                                        }
+                                    }}
+                                >
+                                    Accept
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {/* "Add Peer" button - Always visible now */}
                 <button className="modern-button text-white font-bold py-2 px-6 rounded-lg shadow-md">
                     Add Peer

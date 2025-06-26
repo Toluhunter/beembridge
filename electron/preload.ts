@@ -8,6 +8,7 @@ declare global {
     interface Window {
         electron: {
             startPeerDiscovery: () => void;
+            startTcpServer: () => void;
             onPeerUpdate: (callback: (event: Electron.IpcRendererEvent, peers: DiscoveredPeer[]) => void) => () => void;
             onConnectionResponse: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, status: string, reason?: string) => void) => () => void;
             connectToPeer: (peer: DiscoveredPeer) => void;
@@ -16,6 +17,14 @@ declare global {
             setUsername: (newUsername: string) => Promise<boolean>;
             getUserId: () => Promise<string>;
             generateNewUserId: () => Promise<string>;
+            onPeerConnectionRequest: (
+                callback: (
+                    event: Electron.IpcRendererEvent,
+                    peer: DiscoveredPeer,
+                    accept: () => void,
+                    reject: () => void
+                ) => void
+            ) => () => void;
         };
     }
 };
@@ -30,6 +39,19 @@ contextBridge.exposeInMainWorld('electron', {
     startPeerDiscovery: () => {
         ipcRenderer.send('start-peer-discovery');
     },
+
+    startTcpServer: () => {
+        ipcRenderer.send('start-tcp-server');
+    },
+
+    onPeerConnectionRequest: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, accept: () => void, reject: () => void) => void): () => void => {
+        ipcRenderer.on('peer-connection-request', callback);
+
+        return () => {
+            ipcRenderer.removeListener('peer-connection-request', callback);
+        };
+    },
+
 
     onPeerUpdate: (callback: (event: Electron.IpcRendererEvent, peers: DiscoveredPeer[]) => void): () => void => {
         // Listen for 'peer-update' events from the main process

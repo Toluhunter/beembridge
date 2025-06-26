@@ -1,7 +1,7 @@
 // main.ts
 import { app, BrowserWindow, screen, ipcMain } from 'electron';
 import { DiscoveredPeer, startDiscovery } from './utilities/peerDiscovery';
-import { connectToPeer } from './utilities/peerConnection';
+import { connectToPeer, startTcpServer } from './utilities/peerConnection';
 import * as path from 'path';
 import * as url from 'url';
 import * as dotenv from 'dotenv';
@@ -59,6 +59,29 @@ function createWindow() {
         const sendToRenderer = event.sender.send.bind(event.sender);
         startDiscovery(sendToRenderer);
         console.log("Peer discovery initiated from renderer request.");
+    });
+
+    ipcMain.on('start-tcp-server', (event) => {
+        // This is where you would handle the TCP server logic
+        // For now, we just log it and return a success status
+        console.log("TCP Server started from renderer request.");
+        startTcpServer(
+            (peer, accept, reject) => {
+                event.sender.send('peer-connection-request', peer, accept, reject);
+            },
+            (peer, socket) => {
+                console.log(`[RECEIVER] Connection ESTABLISHED with ${peer.peerName}.`);
+                socket.on('data', (data) => {
+                    try {
+                        const message = JSON.parse(data.toString());
+                        console.log(`[RECEIVER] Received message from ${peer.peerName}:`, message);
+                    } catch (e) {
+                        console.error("[RECEIVER] Error parsing data:", e);
+                    }
+                });
+            },
+            store.get('userId') // Pass the userId from the store
+        );
     });
 
     ipcMain.on('connect-to-peer', async (event, peer: DiscoveredPeer) => {
