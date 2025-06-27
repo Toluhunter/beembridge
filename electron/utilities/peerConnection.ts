@@ -2,7 +2,10 @@
 import * as net from 'net';
 import { MY_TCP_PORT, DiscoveredPeer, startDiscovery, stopDiscovery, getDiscoveredPeers } from './peerDiscovery';
 import { hostname } from 'os';
-import * as readline from 'readline'; // Import readline
+import * as readline from 'readline';
+import * as fs from 'fs';
+import * as path from 'path';
+import { initiateFileTransfer, handleIncomingFileTransfer } from './fileTransfer';
 
 // --- Configuration ---
 const APP_ID = "MyAwesomeFileTransferApp";
@@ -65,7 +68,7 @@ export function startTcpServer(
         console.log(`[TCP Server] Incoming connection from ${socket.remoteAddress}:${socket.remotePort}`);
 
         let buffer = '';
-        socket.on('data', (data) => {
+        socket.once('data', (data) => {
             buffer += data.toString();
             const messages = buffer.split('\n');
             buffer = messages.pop() || '';
@@ -302,28 +305,45 @@ export function getConnectedPeers(): DiscoveredPeer[] {
 
 // --- Standalone Test Mode ---
 // This block will run when you execute this file directly.
+// src/peerConnection.ts (inside the if (require.main === module) block)
+// ... (imports and existing code up to the test block)
+
+// --- Standalone Test Mode ---
 if (require.main === module) {
     const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout
     });
 
-    const MY_INSTANCE_ID = Math.random().toString(36).substring(2, 15); // Local instance ID for test
+    const MY_INSTANCE_ID = Math.random().toString(36).substring(2, 15);
+    const TEST_FILE_PATH = path.join(__dirname, 'test.mkv'); // Path to a dummy file for testing
+    let connectionAttemptTimer: NodeJS.Timeout | null = null;
 
-    console.log("--- Peer Connection Test Mode ---");
-    rl.question("Are you the sender or receiver? (s/r): ", (answer) => {
+    // Create a dummy test file if it doesn't exist
+    if (!fs.existsSync(TEST_FILE_PATH)) {
+        fs.writeFileSync(TEST_FILE_PATH, `This is a test file for transfer. Created on ${new Date().toISOString()}\n`);
+        for (let i = 0; i < 1000; i++) { // Make it a bit larger
+            fs.appendFileSync(TEST_FILE_PATH, `Line ${i}: Some dummy data to make the file bigger.\n`);
+        }
+        console.log(`Created dummy test file: ${TEST_FILE_PATH}`);
+    }
+
+
+    console.log("--- Peer Connection & File Transfer Test Mode ---");
+    rl.question("Are you the sender or receiver? (s/r): ", async (answer) => { // Make async
         const role = answer.toLowerCase().trim();
+
+        // Start discovery for both roles immediately
+        startDiscovery(undefined, MY_PEER_NAME);
 
         if (role === 'r') {
             console.log("\n*** ROLE: RECEIVER ***");
-            console.log("Starting peer discovery and TCP server...");
-
-            startDiscovery(undefined, MY_PEER_NAME); // Start broadcasting presence
+            console.log("Starting TCP server and waiting for connection requests...");
 
             startTcpServer(
                 (peer, accept, reject) => {
                     // Receiver's connection request handler
-                    rl.question(`\nConnection request from ${peer.peerName} (${peer.ipAddress}). Accept (y) or Reject (n)? `, (response) => {
+                    rl.question(`\nConnection request from ${peer.peerName} (${peer.ipAddress}). Accept (y) or Reject (n)? (y/n) `, (response) => {
                         if (response.toLowerCase().trim() === 'y') {
                             accept();
                         } else {
@@ -332,35 +352,54 @@ if (require.main === module) {
                     });
                 },
                 (peer, socket) => {
-                    console.log(`\n[RECEIVER] Connection ESTABLISHED with ${peer.peerName}. You can now send/receive data.`);
-                    socket.on('data', (data) => {
-                        try {
-                            const message = JSON.parse(data.toString());
-                            console.log(`[RECEIVER] Received message from ${peer.peerName}:`, message);
-                            if (message.type === "MESSAGE" && message.content === "Hello from client!") {
-                                socket.write(JSON.stringify({ type: "MESSAGE", content: "Receiver says: Hello back!" }) + '\n');
-                            }
-                        } catch (e) {
-                            console.error("[RECEIVER] Error parsing data:", e);
+                    // This callback fires when a connection is ESTABLISHED (after handshake)
+                    console.log(`\n[RECEIVER] Connection ESTABLISHED with ${peer.peerName}. Preparing to receive files.`);
+
+                    // Now, tell the fileTransfer module to handle incoming messages on this socket
+                    handleIncomingFileTransfer(
+                        socket,
+                        peer,
+                        MY_INSTANCE_ID,
+                        MY_PEER_NAME,
+                        (progress) => {
+                            // Update UI progress in a real app
+                            process.stdout.write(`\r[RECEIVER] Receiving ${progress.fileName}: ${progress.percentage.toFixed(2)}% (${(progress.transferredBytes / 1024).toFixed(0)}KB/${(progress.totalBytes / 1024).toFixed(0)}KB)`);
+                        },
+                        (result) => {
+                            console.log(`\n[RECEIVER] Transfer ${result.fileName} ${result.status}. Path: ${result.receivedFilePath || 'N/A'}`);
+                            // Cleanup UI/state in a real app
+                        },
+                        (fileId, message) => {
+                            console.error(`\n[RECEIVER] Transfer error for ${fileId}: ${message}`);
+                        },
+                        (fileId, fileName, fileSize, senderPeerName, acceptFileCb, rejectFileCb) => {
+                            // This is the prompt for the receiver to accept/reject the file itself
+                            rl.question(`\nReceive file '${fileName}' (${(fileSize / (1024 * 1024)).toFixed(2)}MB) from ${senderPeerName}? (y/n) `, (response) => {
+                                if (response.toLowerCase().trim() === 'y') {
+                                    acceptFileCb(fileId);
+                                } else {
+                                    rejectFileCb(fileId, "User denied file transfer.");
+                                }
+                            });
                         }
-                    });
+                    );
                 },
                 MY_INSTANCE_ID // Pass instance ID to server
             );
 
         } else if (role === 's') {
             console.log("\n*** ROLE: SENDER ***");
-            console.log("Starting peer discovery. Will attempt to connect to the first discovered peer.");
+            console.log("Starting peer discovery. Will attempt to connect and send a test file to the first discovered peer.");
 
-            startDiscovery(undefined, MY_PEER_NAME); // Start broadcasting presence
+            let connectedPeer: DiscoveredPeer | null = null;
 
             // Wait for peers to be discovered before attempting to connect
-            const discoveryAttemptTimer = setInterval(() => {
+            connectionAttemptTimer = setInterval(() => {
                 const peers = getDiscoveredPeers();
-                const connectablePeers = peers.filter(p => p.instanceId !== MY_INSTANCE_ID); // Exclude self
+                const connectablePeers = peers.filter(p => p.instanceId !== MY_INSTANCE_ID);
 
-                if (connectablePeers.length > 0) {
-                    clearInterval(discoveryAttemptTimer);
+                if (connectablePeers.length > 0 && !connectedPeer) { // Only connect if not already connected
+                    clearInterval(connectionAttemptTimer!);
                     const peerToConnect = connectablePeers[0];
                     console.log(`\n[SENDER] Found peer: ${peerToConnect.peerName} (${peerToConnect.ipAddress}:${peerToConnect.tcpPort}). Attempting to connect...`);
 
@@ -369,30 +408,41 @@ if (require.main === module) {
                         (peer, status, reason) => {
                             console.log(`[SENDER] Connection status with ${peer.peerName}: ${status}${reason ? ` (${reason})` : ''}`);
                             if (status === 'accepted') {
-                                // Once connected, you could prompt the sender to send a file here.
-                                console.log("[SENDER] Connection ready! You can send data now.");
+                                connectedPeer = peer; // Mark as connected
                             } else if (status === 'rejected' || status === 'failed') {
                                 console.log("[SENDER] Connection failed or rejected. Please try another peer.");
+                                connectedPeer = null; // Reset to try again
+                                // Optionally, restart the discovery attempt timer here if you want to retry
                             }
                         },
                         (peer, socket) => {
-                            console.log(`[SENDER] Connection ESTABLISHED with ${peer.peerName}.`);
-                            socket.on('data', (data) => {
-                                try {
-                                    const message = JSON.parse(data.toString());
-                                    console.log(`[SENDER] Received message from ${peer.peerName}:`, message);
-                                } catch (e) {
-                                    console.error("[SENDER] Error parsing data:", e);
+                            console.log(`[SENDER] Connection ESTABLISHED with ${peer.peerName}. Initiating file transfer.`);
+                            // Connection is established, now initiate file transfer
+                            initiateFileTransfer(
+                                socket,
+                                TEST_FILE_PATH,
+                                MY_INSTANCE_ID,
+                                MY_PEER_NAME,
+                                (progress) => {
+                                    // Update UI progress in a real app
+                                    process.stdout.write(`\r[SENDER] Sending ${progress.fileName}: ${progress.percentage.toFixed(2)}% (${(progress.transferredBytes / 1024).toFixed(0)}KB/${(progress.totalBytes / 1024).toFixed(0)}KB)`);
+                                },
+                                (result) => {
+                                    console.log(`\n[SENDER] Transfer ${result.fileName} ${result.status}.`);
+                                    // Cleanup UI/state in a real app
+                                    socket.end(); // End connection after transfer
+                                    process.exit(0); // Exit sender after transfer
+                                },
+                                (fileId, message) => {
+                                    console.error(`\n[SENDER] Transfer error for ${fileId}: ${message}`);
+                                    socket.end();
+                                    process.exit(1); // Exit sender on error
                                 }
-                            });
-                            // For testing, send a greeting message after connection
-                            setTimeout(() => {
-                                socket.write(JSON.stringify({ type: "MESSAGE", content: "Hello from client!" }) + '\n');
-                            }, 1000);
+                            );
                         },
-                        MY_INSTANCE_ID // Pass instance ID to client
+                        MY_INSTANCE_ID
                     );
-                } else {
+                } else if (!connectedPeer) {
                     console.log("[SENDER] Waiting for peers to be discovered...");
                 }
             }, 3000); // Check for peers every 3 seconds
@@ -403,9 +453,19 @@ if (require.main === module) {
             process.exit(1);
         }
 
-        // Close readline interface after initial question, but keep process alive
-        rl.on('close', () => {
-            console.log("\n--- Exiting test mode ---");
+        // Close readline interface and cleanup on process exit
+        process.on('SIGINT', () => { // Ctrl+C
+            console.log("\n--- Exiting test mode via SIGINT ---");
+            if (connectionAttemptTimer) clearInterval(connectionAttemptTimer);
+            rl.close();
+            stopTcpServer();
+            stopDiscovery();
+            process.exit(0);
+        });
+        process.on('SIGTERM', () => { // Termination signal
+            console.log("\n--- Exiting test mode via SIGTERM ---");
+            if (connectionAttemptTimer) clearInterval(connectionAttemptTimer);
+            rl.close();
             stopTcpServer();
             stopDiscovery();
             process.exit(0);

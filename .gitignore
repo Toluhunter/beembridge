@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+*.mkv
 
 # next.js
 /.next/
