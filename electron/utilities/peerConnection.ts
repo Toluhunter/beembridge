@@ -3,9 +3,9 @@ import * as net from 'net';
 import { MY_TCP_PORT, DiscoveredPeer, startDiscovery, stopDiscovery, getDiscoveredPeers } from './peerDiscovery';
 import { hostname } from 'os';
 import * as readline from 'readline';
-import * as fs from 'fs';
 import * as path from 'path';
-import { initiateFileTransfer, handleIncomingFileTransfer } from './fileTransfer';
+import { initiateFileTransfer } from './transfer/sender';
+import { handleIncomingFileTransfer } from './transfer/receiver';
 
 // --- Configuration ---
 const APP_ID = "MyAwesomeFileTransferApp";
@@ -320,13 +320,13 @@ if (require.main === module) {
     let connectionAttemptTimer: NodeJS.Timeout | null = null;
 
     // Create a dummy test file if it doesn't exist
-    if (!fs.existsSync(TEST_FILE_PATH)) {
-        fs.writeFileSync(TEST_FILE_PATH, `This is a test file for transfer. Created on ${new Date().toISOString()}\n`);
-        for (let i = 0; i < 1000; i++) { // Make it a bit larger
-            fs.appendFileSync(TEST_FILE_PATH, `Line ${i}: Some dummy data to make the file bigger.\n`);
-        }
-        console.log(`Created dummy test file: ${TEST_FILE_PATH}`);
-    }
+    // if (!fs.existsSync(TEST_FILE_PATH)) {
+    //     fs.writeFileSync(TEST_FILE_PATH, `This is a test file for transfer. Created on ${new Date().toISOString()}\n`);
+    //     for (let i = 0; i < 1000; i++) { // Make it a bit larger
+    //         fs.appendFileSync(TEST_FILE_PATH, `Line ${i}: Some dummy data to make the file bigger.\n`);
+    //     }
+    //     console.log(`Created dummy test file: ${TEST_FILE_PATH}`);
+    // }
 
 
     console.log("--- Peer Connection & File Transfer Test Mode ---");
@@ -345,6 +345,7 @@ if (require.main === module) {
                     // Receiver's connection request handler
                     rl.question(`\nConnection request from ${peer.peerName} (${peer.ipAddress}). Accept (y) or Reject (n)? (y/n) `, (response) => {
                         if (response.toLowerCase().trim() === 'y') {
+                            stopDiscovery();
                             accept();
                         } else {
                             reject("User denied connection.");
@@ -408,6 +409,7 @@ if (require.main === module) {
                         (peer, status, reason) => {
                             console.log(`[SENDER] Connection status with ${peer.peerName}: ${status}${reason ? ` (${reason})` : ''}`);
                             if (status === 'accepted') {
+                                stopDiscovery();
                                 connectedPeer = peer; // Mark as connected
                             } else if (status === 'rejected' || status === 'failed') {
                                 console.log("[SENDER] Connection failed or rejected. Please try another peer.");
@@ -430,8 +432,8 @@ if (require.main === module) {
                                 (result) => {
                                     console.log(`\n[SENDER] Transfer ${result.fileName} ${result.status}.`);
                                     // Cleanup UI/state in a real app
-                                    socket.end(); // End connection after transfer
-                                    process.exit(0); // Exit sender after transfer
+                                    // socket.end(); // End connection after transfer
+                                    // process.exit(0); // Exit sender after transfer
                                 },
                                 (fileId, message) => {
                                     console.error(`\n[SENDER] Transfer error for ${fileId}: ${message}`);
