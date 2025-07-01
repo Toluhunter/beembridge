@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as url from 'url';
 import * as dotenv from 'dotenv';
 import Store from 'electron-store'
+import { v4 as uuidv4 } from 'uuid'; // npm install uuid
 dotenv.config();
 
 let mainWindow: BrowserWindow | null;
@@ -18,6 +19,8 @@ const store = new Store<{ userName: string, userId: string }>({
         userId: `BB_USER_${crypto.randomUUID().replace(/-/g, '').substring(0, 10).toUpperCase()}`,
     },
 });
+
+const pendingConnectionRequests = new Map<string, { accept: () => void, reject: (reason: string) => void }>();
 
 function createWindow() {
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -62,12 +65,12 @@ function createWindow() {
     });
 
     ipcMain.on('start-tcp-server', (event) => {
-        // This is where you would handle the TCP server logic
-        // For now, we just log it and return a success status
         console.log("TCP Server started from renderer request.");
         startTcpServer(
             (peer, accept, reject) => {
-                event.sender.send('peer-connection-request', peer, accept, reject);
+                const requestId = uuidv4();
+                pendingConnectionRequests.set(requestId, { accept, reject });
+                event.sender.send('peer-connection-request', { peer, requestId });
             },
             (peer, socket) => {
                 console.log(`[RECEIVER] Connection ESTABLISHED with ${peer.peerName}.`);
@@ -82,6 +85,19 @@ function createWindow() {
             },
             store.get('userId') // Pass the userId from the store
         );
+    });
+
+    // Listen for renderer's response
+    ipcMain.on('peer-connection-response', (event, { requestId, accepted, reason }) => {
+        const handlers = pendingConnectionRequests.get(requestId);
+        if (handlers) {
+            if (accepted) {
+                handlers.accept();
+            } else {
+                handlers.reject(reason || "User rejected connection.");
+            }
+            pendingConnectionRequests.delete(requestId);
+        }
     });
 
     ipcMain.on('connect-to-peer', async (event, peer: DiscoveredPeer) => {

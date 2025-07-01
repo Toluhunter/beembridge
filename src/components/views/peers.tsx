@@ -24,7 +24,7 @@ export const PeerView = () => {
     // State to manage the list of connected peers
     const [connectedPeers, setConnectedPeers] = useState<DiscoveredPeer[]>([]);
     // State to control the sonar animation and discovery mode
-    const [incomingRequest, setIncomingRequest] = useState<{ peer: DiscoveredPeer, accept: () => void, reject: () => void } | null>(null);
+    const [incomingRequest, setIncomingRequest] = useState<{ peer: DiscoveredPeer, requestId: string, accept: () => void, reject: () => void } | null>(null);
     const [isDiscovering, setIsDiscovering] = useState(false);
     const [connectingPeerId, setConnectingPeerId] = useState<string | null>(null);
 
@@ -52,8 +52,20 @@ export const PeerView = () => {
                 setConnectingPeerId(null);
             });
 
-            const cleanupPeerConnectionRequest = window.electron.onPeerConnectionRequest((_event, peer, accept, reject) => {
-                setIncomingRequest({ peer, accept, reject });
+            const cleanupPeerConnectionRequest = window.electron.onPeerConnectionRequest((_event, peer, requestId) => {
+                console.log(peer)
+                const accept = () => {
+                    console.log(`[RECEIVER] Accepting connection request from ${peer.peerName}`);
+                    window.electron.respondToPeerConnectionRequest(requestId, true);
+                    setIncomingRequest(null);
+                };
+
+                const reject = (reason?: string) => {
+                    console.log(`[RECEIVER] Rejecting connection request from ${peer.peerName}${reason ? `: ${reason}` : ''}`);
+                    window.electron.respondToPeerConnectionRequest(requestId, false, reason);
+                    setIncomingRequest(null);
+                };
+                setIncomingRequest({ peer, requestId, accept, reject });
             });
 
             // --- Fetch app version using invoke ---

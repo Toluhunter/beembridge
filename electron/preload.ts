@@ -21,10 +21,10 @@ declare global {
                 callback: (
                     event: Electron.IpcRendererEvent,
                     peer: DiscoveredPeer,
-                    accept: () => void,
-                    reject: () => void
+                    requestId: string
                 ) => void
             ) => () => void;
+            respondToPeerConnectionRequest: (requestId: string, accepted: boolean, reason?: string) => void;
         };
     }
 };
@@ -44,7 +44,7 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.send('start-tcp-server');
     },
 
-    onPeerConnectionRequest: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, accept: () => void, reject: () => void) => void): () => void => {
+    onPeerConnectionRequest: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, requestId: string) => void): () => void => {
         ipcRenderer.on('peer-connection-request', callback);
 
         return () => {
@@ -98,6 +98,10 @@ contextBridge.exposeInMainWorld('electron', {
     generateNewUserId: async (): Promise<string> => {
         const newUserId = await ipcRenderer.invoke('generate-new-userid');
         return newUserId;
+    },
+
+    respondToPeerConnectionRequest: (requestId: string, accepted: boolean, reason?: string) => {
+        ipcRenderer.send('peer-connection-response', { requestId, accepted, reason });
     },
 
     // You can expose other utilities here, for example:
