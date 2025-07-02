@@ -21,6 +21,8 @@ interface BaseMessage {
 
 interface ConnectionRequestMessage extends BaseMessage {
     type: "CONNECTION_REQUEST";
+    senderAppId: string;
+    senderTcpPort: number;
 }
 
 interface ConnectionAcceptMessage extends BaseMessage {
@@ -148,6 +150,7 @@ function handleIncomingMessage(socket: net.Socket, message: PeerMessage, myInsta
 
     if (message.type === "CONNECTION_REQUEST") {
         console.log(`[TCP Server] Received connection request from ${message.senderPeerName} (${message.senderInstanceId}) at ${socket.remoteAddress}`);
+        peerInfo.tcpPort = message.senderTcpPort;
         if (onConnectionRequestCallback) {
             const accept = () => {
                 const response: ConnectionAcceptMessage = {
@@ -156,6 +159,7 @@ function handleIncomingMessage(socket: net.Socket, message: PeerMessage, myInsta
                     senderPeerName: MY_PEER_NAME,
                     timestamp: Date.now()
                 };
+
                 socket.write(JSON.stringify(response) + '\n');
                 activeConnections.set(peerInfo.instanceId, socket);
                 onPeerConnectedCallback?.(peerInfo, socket);
@@ -219,6 +223,8 @@ export function connectToPeer(
             type: "CONNECTION_REQUEST",
             senderInstanceId: myInstanceId, // Use local instance ID
             senderPeerName: MY_PEER_NAME,
+            senderAppId: APP_ID,
+            senderTcpPort: MY_TCP_PORT,
             timestamp: Date.now()
         };
         client.write(JSON.stringify(request) + '\n');

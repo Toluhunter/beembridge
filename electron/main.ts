@@ -70,7 +70,8 @@ function createWindow() {
             (peer, accept, reject) => {
                 const requestId = uuidv4();
                 pendingConnectionRequests.set(requestId, { accept, reject });
-                event.sender.send('peer-connection-request', { peer, requestId });
+                console.log(peer)
+                event.sender.send('peer-connection-request', peer, requestId);
             },
             (peer, socket) => {
                 console.log(`[RECEIVER] Connection ESTABLISHED with ${peer.peerName}.`);

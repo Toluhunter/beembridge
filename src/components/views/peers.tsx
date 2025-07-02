@@ -53,7 +53,8 @@ export const PeerView = () => {
             });
 
             const cleanupPeerConnectionRequest = window.electron.onPeerConnectionRequest((_event, peer, requestId) => {
-                console.log(peer)
+                console.log(`[RECEIVER] Connection request from ${peer.peerName} (${requestId})`);
+                console.log(`[RECEIVER] Peer: ${JSON.stringify(peer)}`);
                 const accept = () => {
                     console.log(`[RECEIVER] Accepting connection request from ${peer.peerName}`);
                     window.electron.respondToPeerConnectionRequest(requestId, true);
