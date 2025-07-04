@@ -2,6 +2,7 @@
 
 import * as dgram from 'dgram';
 import { networkInterfaces, hostname } from 'os';
+import { buildFramedMessage, FrameParser } from './framingProtocol';
 
 // --- Configuration ---
 const DISCOVERY_PORT: number = 55555; // UDP port for discovery messages
@@ -88,6 +89,7 @@ const excluded = [
     64000
 ];
 export const MY_TCP_PORT = getRandomPort(49152, 65535, excluded);
+const frameparser = new FrameParser()
 
 // --- Helper to get local IP addresses for broadcasting ---
 function getLocalIpAddresses(): string[] {
@@ -157,25 +159,30 @@ export function startDiscovery(ipcSender?: PeerUpdateSender, peerName?: string):
 
     discoverySocket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
         try {
-            const message: DiscoveryMessage = JSON.parse(msg.toString());
+            const messages = frameparser.feed(msg);
 
-            if (message.instanceId === INSTANCE_ID || message.appId !== APP_ID) {
-                return; // Ignore messages from myself or other apps
-            }
+            for (const data of messages) {
+                const message: DiscoveryMessage = data.header as DiscoveryMessage;
 
-            const peer: DiscoveredPeer = {
-                ...message,
-                lastSeen: Date.now(),
-                ipAddress: rinfo.address
-            };
+                if (message.instanceId === INSTANCE_ID || message.appId !== APP_ID) {
+                    return; // Ignore messages from myself or other apps
+                }
 
-            if (!discoveredPeers.has(peer.instanceId)) {
-                console.log(`[Discovery] New peer UP: ${peer.peerName} (${peer.ipAddress}:${peer.tcpPort})`);
-                discoveredPeers.set(peer.instanceId, peer);
-                sendPeerUpdate(); // Send update when a new peer is discovered
-            } else {
-                // Just update lastSeen for existing peer
-                discoveredPeers.get(peer.instanceId)!.lastSeen = Date.now();
+                const peer: DiscoveredPeer = {
+                    ...message,
+                    lastSeen: Date.now(),
+                    ipAddress: rinfo.address
+                };
+
+                if (!discoveredPeers.has(peer.instanceId)) {
+                    console.log(`[Discovery] New peer UP: ${peer.peerName} (${peer.ipAddress}:${peer.tcpPort})`);
+                    discoveredPeers.set(peer.instanceId, peer);
+                    sendPeerUpdate(); // Send update when a new peer is discovered
+                } else {
+                    // Just update lastSeen for existing peer
+                    discoveredPeers.get(peer.instanceId)!.lastSeen = Date.now();
+                }
+
             }
 
         } catch (e: unknown) { // Use 'unknown' for catch clause variable
@@ -226,7 +233,7 @@ function startBroadcasting(): void {
             tcpPort: MY_TCP_PORT,
             timestamp: Date.now()
         };
-        const buffer = Buffer.from(JSON.stringify(message));
+        const buffer = buildFramedMessage(message);
 
         discoverySocket!.send(buffer, DISCOVERY_PORT, '255.255.255.255', (err: Error | null) => {
             if (err) {

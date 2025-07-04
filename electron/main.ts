@@ -1,5 +1,6 @@
 // main.ts
-import { app, BrowserWindow, screen, ipcMain } from 'electron';
+import { app, BrowserWindow, screen, ipcMain, dialog } from 'electron';
+import { FrameParser } from './utilities/framingProtocol';
 import { DiscoveredPeer, startDiscovery } from './utilities/peerDiscovery';
 import { connectToPeer, startTcpServer } from './utilities/peerConnection';
 import * as path from 'path';
@@ -7,6 +8,7 @@ import * as url from 'url';
 import * as dotenv from 'dotenv';
 import Store from 'electron-store'
 import { v4 as uuidv4 } from 'uuid'; // npm install uuid
+import * as fs from 'fs';
 dotenv.config();
 
 let mainWindow: BrowserWindow | null;
@@ -19,6 +21,14 @@ const store = new Store<{ userName: string, userId: string }>({
         userId: `BB_USER_${crypto.randomUUID().replace(/-/g, '').substring(0, 10).toUpperCase()}`,
     },
 });
+
+interface SelectedFile {
+    path: string;
+    name: string;
+    size: number;
+    type: string;
+    lastModified: string;
+}
 
 const pendingConnectionRequests = new Map<string, { accept: () => void, reject: (reason: string) => void }>();
 
@@ -77,7 +87,8 @@ function createWindow() {
                 console.log(`[RECEIVER] Connection ESTABLISHED with ${peer.peerName}.`);
                 socket.on('data', (data) => {
                     try {
-                        const message = JSON.parse(data.toString());
+                        const frameParser = new FrameParser();
+                        const message = frameParser.feed(data);
                         console.log(`[RECEIVER] Received message from ${peer.peerName}:`, message);
                     } catch (e) {
                         console.error("[RECEIVER] Error parsing data:", e);
@@ -86,6 +97,38 @@ function createWindow() {
             },
             store.get('userId') // Pass the userId from the store
         );
+    });
+
+    ipcMain.handle('dialog:openFile', async (event, options) => {
+        const defaultOptions = {
+            properties: ['openFile'], // Default to opening files
+            filters: [],
+        };
+        const selecteFiles: SelectedFile[] = [];
+        const mergedOptions = { ...defaultOptions, ...options };
+
+        const { canceled, filePaths } = await dialog.showOpenDialog(mergedOptions);
+        if (canceled) {
+            return null;
+        }
+        for (const filepath of filePaths) {
+            try {
+                console.log(filepath)
+                const stats = await fs.promises.stat(filepath);
+                selecteFiles.push({
+                    path: filepath,
+                    name: path.basename(filepath),
+                    size: stats.size, // Size in bytes
+                    type: stats.isDirectory() ? 'directory' : 'file', // Simple type check
+                    lastModified: stats.mtime.toISOString(), // Last modified date
+                });
+            } catch (error) {
+                console.error(`Error getting file info for ${filepath}:`, error);
+                return null; // Return null for files that failed to read info
+            }
+        }
+        return selecteFiles;
+
     });
 
     // Listen for renderer's response

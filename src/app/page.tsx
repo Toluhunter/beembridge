@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react'; // Import useRef for file input
 import { PeerView } from '@/components/views/peers';
+import { DiscoveredPeer } from '@/components/views/peers';
 import { ExplorerView, SelectedFile } from '@/components/views/explorer';
 import { TransferHistoryView } from '@/components/views/transfer-history';
 import { ActiveTransferView } from '@/components/views/active-transfers';
@@ -29,6 +30,7 @@ const App = () => {
   const [activeView, setActiveView] = useState<SidebarItem['id']>('peers');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false); // State for sidebar collapse
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [connectedPeers, setConnectedPeers] = useState<DiscoveredPeer[]>([]);
   const [userName, setUserName] = useState("BeemBridge User"); // Made userName mutable
   const [userId, setUserId] = useState("BB_USER_1234567890"); // Made userId mutable
 
@@ -47,6 +49,15 @@ const App = () => {
         !(file.name === fileToRemove.name && file.size === fileToRemove.size)
       )
     );
+  };
+
+  const handleSendFilesToPeers = (files: SelectedFile[], targetPeers: DiscoveredPeer[]) => {
+    console.log("Sending files:", files.map(f => f.name));
+    console.log("To peers:", targetPeers.map(p => p.peerName));
+    // Here you would typically call window.electron.sendFiles(files, targetPeers);
+    // For demonstration, we'll just log and clear selected files after "sending"
+    setSelectedFiles([]); // Clear selected files after sending attempt
+    // You might want to move these to a "Transfers" view or history
   };
 
   const handleUpdateUserNameInMainProcess = async (newName: string) => {
@@ -193,7 +204,10 @@ const App = () => {
       {/* Main Content */}
       <main className="flex-1 bg-gray-900 p-8 overflow-auto rounded-l-3xl">
         {activeView === 'peers' && (
-          <PeerView />
+          <PeerView
+            connectedPeers={connectedPeers}
+            setConnectedPeers={setConnectedPeers}
+          />
         )}
 
         {activeView === 'history' && (
@@ -209,6 +223,8 @@ const App = () => {
             selectedFiles={selectedFiles}
             onAddFiles={handleAddSelectedFiles}
             onRemoveFile={handleRemoveSelectedFile}
+            connectedPeers={connectedPeers} // Pass connected peers
+            onSendFilesToPeers={handleSendFilesToPeers} // Pass send files handler
           />
         )}
 

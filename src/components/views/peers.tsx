@@ -18,11 +18,15 @@ export interface DiscoveredPeer extends DiscoveryMessage { // Exported for use i
     lastSeen: number; // Timestamp when the last beacon from this peer was received
     ipAddress: string; // The IP address of the peer (from the UDP packet)
 }
-export const PeerView = () => {
+
+interface PeerViewProps {
+    connectedPeers: DiscoveredPeer[];
+    setConnectedPeers: React.Dispatch<React.SetStateAction<DiscoveredPeer[]>>;
+}
+export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnectedPeers }) => {
     // State to manage the list of discovered peers
     const [discoveredPeers, setDiscoveredPeers] = useState<DiscoveredPeer[]>([]);
     // State to manage the list of connected peers
-    const [connectedPeers, setConnectedPeers] = useState<DiscoveredPeer[]>([]);
     // State to control the sonar animation and discovery mode
     const [incomingRequest, setIncomingRequest] = useState<{ peer: DiscoveredPeer, requestId: string, accept: () => void, reject: () => void } | null>(null);
     const [isDiscovering, setIsDiscovering] = useState(false);
@@ -31,7 +35,6 @@ export const PeerView = () => {
     useEffect(() => {
         // Check if the 'electron' API is available
         if (window.electron) {
-            console.log('Electron API is available in the renderer!');
 
             // --- Listener for replies from Main Process ---
             // This will update the discoveredPeers state when new peer information is received
@@ -70,16 +73,6 @@ export const PeerView = () => {
             });
 
             // --- Fetch app version using invoke ---
-            const fetchAppVersion = async () => {
-                try {
-                    const version = await window.electron.getAppVersion();
-                    console.log('App Version:', version);
-                } catch (error) {
-                    console.error('Failed to get app version:', error);
-                }
-            };
-            fetchAppVersion();
-
             // Cleanup function to remove the listener when component unmounts
             return () => {
                 cleanup(); // Call the cleanup function returned by onReplyFromMain

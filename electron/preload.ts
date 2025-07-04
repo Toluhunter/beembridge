@@ -4,6 +4,14 @@ import { DiscoveredPeer } from './utilities/peerDiscovery';
 
 // Type definitions for the functions we'll expose to the renderer
 // This is good practice for TypeScript in the renderer process
+
+interface SelectedFile {
+    path: string;
+    name: string;
+    size: number;
+    type: string;
+    lastModified: string;
+}
 declare global {
     interface Window {
         electron: {
@@ -25,6 +33,7 @@ declare global {
                 ) => void
             ) => () => void;
             respondToPeerConnectionRequest: (requestId: string, accepted: boolean, reason?: string) => void;
+            openFile: (options?: Electron.OpenDialogOptions) => Promise<SelectedFile[] | null>;
         };
     }
 };
@@ -42,6 +51,14 @@ contextBridge.exposeInMainWorld('electron', {
 
     startTcpServer: () => {
         ipcRenderer.send('start-tcp-server');
+    },
+    openFile: async (options = {}): Promise<SelectedFile[] | null> => {
+        try {
+            return await ipcRenderer.invoke('dialog:openFile', options);
+        } catch (error) {
+            console.error('Error opening file dialog:', error);
+            return null;
+        }
     },
 
     onPeerConnectionRequest: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, requestId: string) => void): () => void => {

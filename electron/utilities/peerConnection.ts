@@ -4,12 +4,14 @@ import { MY_TCP_PORT, DiscoveredPeer, startDiscovery, stopDiscovery, getDiscover
 import { hostname } from 'os';
 import * as readline from 'readline';
 import * as path from 'path';
+import { buildFramedMessage, FrameParser } from './framingProtocol';
 import { initiateFileTransfer } from './transfer/sender';
 import { handleIncomingFileTransfer } from './transfer/receiver';
 
 // --- Configuration ---
 const APP_ID = "MyAwesomeFileTransferApp";
 const MY_PEER_NAME = hostname() || 'Unknown Device';
+const frameparser = new FrameParser();
 
 // --- Message Protocol Interfaces ---
 interface BaseMessage {
@@ -69,16 +71,12 @@ export function startTcpServer(
     server = net.createServer((socket) => {
         console.log(`[TCP Server] Incoming connection from ${socket.remoteAddress}:${socket.remotePort}`);
 
-        let buffer = '';
         socket.once('data', (data) => {
-            buffer += data.toString();
-            const messages = buffer.split('\n');
-            buffer = messages.pop() || '';
+            const messages = frameparser.feed(data);
 
-            for (const msgString of messages) {
-                if (msgString.trim() === '') continue;
+            for (const data of messages) {
                 try {
-                    const message: PeerMessage = JSON.parse(msgString);
+                    const message = data.header as PeerMessage;
                     // Ensure the senderInstanceId is the correct one for the peer, not our own APP_ID
                     if (message.type === "CONNECTION_REQUEST") {
                         handleIncomingMessage(socket, message, instanceId); // Pass instanceId
@@ -160,7 +158,7 @@ function handleIncomingMessage(socket: net.Socket, message: PeerMessage, myInsta
                     timestamp: Date.now()
                 };
 
-                socket.write(JSON.stringify(response) + '\n');
+                socket.write(buildFramedMessage(response));
                 activeConnections.set(peerInfo.instanceId, socket);
                 onPeerConnectedCallback?.(peerInfo, socket);
                 console.log(`[TCP Server] Accepted connection from ${peerInfo.peerName}`);
@@ -173,7 +171,7 @@ function handleIncomingMessage(socket: net.Socket, message: PeerMessage, myInsta
                     reason: reason,
                     timestamp: Date.now()
                 };
-                socket.write(JSON.stringify(response) + '\n');
+                socket.write(buildFramedMessage(response));
                 socket.end();
                 console.log(`[TCP Server] Rejected connection from ${peerInfo.peerName}. Reason: ${reason}`);
             };
@@ -186,7 +184,7 @@ function handleIncomingMessage(socket: net.Socket, message: PeerMessage, myInsta
                 reason: "No handler registered",
                 timestamp: Date.now()
             };
-            socket.write(JSON.stringify(response) + '\n');
+            socket.write(buildFramedMessage(response));
             socket.end();
             console.warn(`[TCP Server] Auto-rejected connection from ${peerInfo.peerName}. No handler registered.`);
         }
@@ -215,7 +213,6 @@ export function connectToPeer(
 
     const client = new net.Socket();
     let isHandshakeComplete = false;
-    let buffer = '';
 
     client.connect(peer.tcpPort, peer.ipAddress, () => {
         console.log(`[TCP Client] Connected to ${peer.peerName} (${peer.ipAddress}:${peer.tcpPort})`);
@@ -227,18 +224,15 @@ export function connectToPeer(
             senderTcpPort: MY_TCP_PORT,
             timestamp: Date.now()
         };
-        client.write(JSON.stringify(request) + '\n');
+        client.write(buildFramedMessage(request));
     });
 
     client.on('data', (data) => {
-        buffer += data.toString();
-        const messages = buffer.split('\n');
-        buffer = messages.pop() || '';
+        const messages = frameparser.feed(data);
 
-        for (const msgString of messages) {
-            if (msgString.trim() === '') continue;
+        for (const message of messages) {
             try {
-                const response: PeerMessage = JSON.parse(msgString);
+                const response: PeerMessage = message.header as PeerMessage;
                 if (response.type === "CONNECTION_ACCEPT" || response.type === "CONNECTION_REJECT") {
                     if (!isHandshakeComplete) {
                         handleConnectionResponse(peer, client, response);
