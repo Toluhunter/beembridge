@@ -251,7 +251,6 @@ export async function initiateFileTransfer(
         }
 
         if (currentChunkIndex >= totalChunks) {
-            console.log(`[Sender] All chunks for ${fileName} initially sent. Sending FILE_END.`);
             const finalMessage: FileEndMessage = {
                 type: "FILE_END",
                 fileId,
@@ -354,7 +353,6 @@ export async function initiateFileTransfer(
                         }
 
                         if (chunkAck.success) {
-                            console.log(`[Sender] Received ACK for chunk ${chunkAck.chunkIndex} (success).`);
                             outstandingChunkIndex = null; // Clear outstanding chunk
                             chunkRetryCounts.delete(chunkAck.chunkIndex); // Clear retry count
                             currentChunkIndex++; // Move to the next chunk
@@ -435,6 +433,7 @@ export async function initiateFileTransfer(
         }
     };
 
+    socket.removeAllListeners('data'); // Clear any previous listeners
     socket.on('data', handleSocketData);
     socket.on('error', (err: Error) => {
         sendError(`Connection error during transfer: ${err.message}`);

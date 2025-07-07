@@ -54,6 +54,9 @@ const App = () => {
   const handleSendFilesToPeers = (files: SelectedFile[], targetPeers: DiscoveredPeer[]) => {
     console.log("Sending files:", files.map(f => f.name));
     console.log("To peers:", targetPeers.map(p => p.peerName));
+    if (window.electron) {
+      window.electron.sendFilesToPeers(files, targetPeers);
+    }
     // Here you would typically call window.electron.sendFiles(files, targetPeers);
     // For demonstration, we'll just log and clear selected files after "sending"
     setSelectedFiles([]); // Clear selected files after sending attempt

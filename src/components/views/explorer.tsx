@@ -3,7 +3,7 @@ import { DiscoveredPeer } from "@/components/views/peers";
 
 
 // Define an interface for a selected file to include properties we care about
-interface SelectedFile {
+export interface SelectedFile {
     path: string;
     name: string;
     size: number;
@@ -21,7 +21,7 @@ interface ExplorerViewProps {
 
 export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAddFiles, onRemoveFile, connectedPeers, onSendFilesToPeers }) => {
     const [showSendModal, setShowSendModal] = useState(false);
-    const [selectedPeersForSending, setSelectedPeersForSending] = useState<DiscoveredPeer[]>([]);
+    const [selectedPeerForSending, setSelectedPeerForSending] = useState<DiscoveredPeer | null>(null);
 
     const handleOpenFile = async () => {
         if (window.electron) {
@@ -62,31 +62,25 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
     const handleSendClick = () => {
         setShowSendModal(true);
         // Reset selected peers for sending when opening the modal
-        setSelectedPeersForSending([]);
+        setSelectedPeerForSending(null);
     };
 
     const handleCloseSendModal = () => {
         setShowSendModal(false);
-        setSelectedPeersForSending([]); // Clear selected peers when closing
+        setSelectedPeerForSending(null); // Clear selected peer when closing
     };
 
-    const handlePeerSelectionChange = (peer: DiscoveredPeer, isChecked: boolean) => {
-        setSelectedPeersForSending(prev => {
-            if (isChecked) {
-                return [...prev, peer];
-            } else {
-                return prev.filter(p => p.instanceId !== peer.instanceId);
-            }
-        });
+    const handlePeerSelectionChange = (peer: DiscoveredPeer) => {
+        setSelectedPeerForSending(peer);
     };
 
     const handleConfirmSend = () => {
-        if (selectedPeersForSending.length > 0 && selectedFiles.length > 0) {
+        if (selectedPeerForSending && selectedFiles.length > 0) {
             selectedFiles.forEach(file => console.log("Selected File:", file.name));
-            onSendFilesToPeers(selectedFiles, selectedPeersForSending);
+            onSendFilesToPeers(selectedFiles, [selectedPeerForSending]); // using list because program will send to multiple peers in the future
             handleCloseSendModal(); // Close modal after initiating send
         } else {
-            console.warn("No files selected or no peers chosen for sending.");
+            console.warn("No files selected or no peer chosen for sending.");
         }
     };
 
@@ -183,10 +177,11 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
                                 {connectedPeers.map(peer => (
                                     <label key={peer.instanceId} className="flex items-center p-3 bg-gray-700 rounded-lg mb-2 cursor-pointer hover:bg-gray-600 transition-colors duration-150">
                                         <input
-                                            type="checkbox"
-                                            checked={selectedPeersForSending.some(p => p.instanceId === peer.instanceId)}
-                                            onChange={(e) => handlePeerSelectionChange(peer, e.target.checked)}
-                                            className="form-checkbox h-5 w-5 text-blue-600 bg-gray-900 border-gray-600 rounded focus:ring-blue-500"
+                                            type="radio"
+                                            name="peer-selection"
+                                            checked={selectedPeerForSending?.instanceId === peer.instanceId}
+                                            onChange={() => handlePeerSelectionChange(peer)}
+                                            className="form-radio h-5 w-5 text-blue-600 bg-gray-900 border-gray-600 rounded focus:ring-blue-500"
                                         />
                                         <span className="ml-3 text-white font-medium">{peer.peerName}</span>
                                         <span className="ml-auto text-gray-400 text-sm">{peer.ipAddress}</span>
@@ -205,7 +200,7 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
                             <button
                                 onClick={handleConfirmSend}
                                 className="modern-button px-6 py-2 rounded-lg text-white font-bold shadow-md"
-                                disabled={selectedPeersForSending.length === 0} // Disable if no peers are selected
+                                disabled={!selectedPeerForSending} // Disable if no peer is selected
                             >
                                 Confirm Send
                             </button>

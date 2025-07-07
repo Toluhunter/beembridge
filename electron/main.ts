@@ -6,9 +6,12 @@ import { connectToPeer, startTcpServer } from './utilities/peerConnection';
 import * as path from 'path';
 import * as url from 'url';
 import * as dotenv from 'dotenv';
+import * as net from 'net';
 import Store from 'electron-store'
 import { v4 as uuidv4 } from 'uuid'; // npm install uuid
 import * as fs from 'fs';
+import { Progress, Result } from './utilities/transfer/types';
+import { initiateFileTransfer } from './utilities/transfer/sender';
 dotenv.config();
 
 let mainWindow: BrowserWindow | null;
@@ -31,6 +34,7 @@ interface SelectedFile {
 }
 
 const pendingConnectionRequests = new Map<string, { accept: () => void, reject: (reason: string) => void }>();
+const activeConnections = new Map<string, { peer: DiscoveredPeer, socket: net.Socket }>();
 
 function createWindow() {
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -74,13 +78,37 @@ function createWindow() {
         console.log("Peer discovery initiated from renderer request.");
     });
 
+    ipcMain.on('send-files-to-peers', (event, files: SelectedFile[], peers: DiscoveredPeer[]) => {
+        console.log("Sending files:", files.map(f => f.name));
+        const targetPeer: DiscoveredPeer = peers[0]; // For now, just send to the first peer
+        const socket = activeConnections.get(targetPeer.instanceId)?.socket as net.Socket;
+        files.forEach(file => {
+            initiateFileTransfer(
+                socket,
+                file.path,
+                targetPeer.instanceId,
+                targetPeer.peerName,
+                (progress: Progress) => {
+                    console.log(`File transfer progress for ${file.name}: ${progress.percentage}%`);
+                },
+                (result: Result) => {
+                    console.error(`File transfer result for ${file.name}:`, result.status);
+                },
+                (fileId: string, message: string) => {
+                    console.error(`File transfer error for ${file.name}: ${message}`);
+                }
+            )
+
+        });
+
+    });
+
     ipcMain.on('start-tcp-server', (event) => {
         console.log("TCP Server started from renderer request.");
         startTcpServer(
             (peer, accept, reject) => {
                 const requestId = uuidv4();
                 pendingConnectionRequests.set(requestId, { accept, reject });
-                console.log(peer)
                 event.sender.send('peer-connection-request', peer, requestId);
             },
             (peer, socket) => {
@@ -90,6 +118,7 @@ function createWindow() {
                         const frameParser = new FrameParser();
                         const message = frameParser.feed(data);
                         console.log(`[RECEIVER] Received message from ${peer.peerName}:`, message);
+                        activeConnections.set(peer.instanceId, { peer, socket });
                     } catch (e) {
                         console.error("[RECEIVER] Error parsing data:", e);
                     }
@@ -158,9 +187,11 @@ function createWindow() {
                 },
                 (peer, socket) => {
                     console.log(`[SENDER] Connection ESTABLISHED with ${peer.peerName}.`);
+                    activeConnections.set(peer.instanceId, { peer, socket });
                     socket.on('data', (data) => {
                         try {
-                            const message = JSON.parse(data.toString());
+                            const frameParser = new FrameParser();
+                            const message = frameParser.feed(data);
                             console.log(`[SENDER] Received message from ${peer.peerName}:`, message);
                         } catch (e) {
                             console.error("[SENDER] Error parsing data:", e);

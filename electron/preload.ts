@@ -18,6 +18,7 @@ declare global {
             startPeerDiscovery: () => void;
             startTcpServer: () => void;
             onPeerUpdate: (callback: (event: Electron.IpcRendererEvent, peers: DiscoveredPeer[]) => void) => () => void;
+            sendFilesToPeers: (files: SelectedFile[], peers: DiscoveredPeer[]) => void;
             onConnectionResponse: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, status: string, reason?: string) => void) => () => void;
             connectToPeer: (peer: DiscoveredPeer) => void;
             getAppVersion: () => Promise<string>;
@@ -59,6 +60,10 @@ contextBridge.exposeInMainWorld('electron', {
             console.error('Error opening file dialog:', error);
             return null;
         }
+    },
+
+    sendFilesToPeers: (files: SelectedFile[], peers: DiscoveredPeer[]) => {
+        ipcRenderer.send('send-files-to-peers', files, peers);
     },
 
     onPeerConnectionRequest: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, requestId: string) => void): () => void => {

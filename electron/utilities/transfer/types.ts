@@ -90,21 +90,22 @@ export type TransferMessage =
     QueueFullMessage |
     QueueFreeMessage |
     TransferErrorMessage;
-
-// --- Progress/Status Callbacks ---
-export type TransferProgressCallback = (progress: {
+export type Progress = {
     fileId: string;
     fileName: string;
     totalBytes: number;
     transferredBytes: number;
     percentage: number;
     speedKbps?: number; // Optional: speed calculation
-}) => void;
+}
+// --- Progress/Status Callbacks ---
+export type TransferProgressCallback = (progress: Progress) => void;
 
-export type TransferCompleteCallback = (result: {
+export type Result = {
     fileId: string | null;
     fileName: string;
     status: "completed" | "cancelled" | "error";
     message?: string;
     receivedFilePath?: string;
-}) => void;
+}
+export type TransferCompleteCallback = (result: Result) => void;
