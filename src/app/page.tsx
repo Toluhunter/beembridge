@@ -54,6 +54,7 @@ const App = () => {
   const handleSendFilesToPeers = (files: SelectedFile[], targetPeers: DiscoveredPeer[]) => {
     console.log("Sending files:", files.map(f => f.name));
     console.log("To peers:", targetPeers.map(p => p.peerName));
+    setActiveView('active-transfers');
     if (window.electron) {
       window.electron.sendFilesToPeers(files, targetPeers);
     }

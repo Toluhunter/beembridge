@@ -12,6 +12,16 @@ interface SelectedFile {
     type: string;
     lastModified: string;
 }
+
+export type Progress = {
+    fileId: string;
+    fileName: string;
+    totalBytes: number;
+    transferredBytes: number;
+    percentage: number;
+    speedKbps?: number; // Optional: speed calculation
+}
+
 declare global {
     interface Window {
         electron: {
@@ -25,6 +35,7 @@ declare global {
             getUsername: () => Promise<string>;
             setUsername: (newUsername: string) => Promise<boolean>;
             getUserId: () => Promise<string>;
+            onProgressUpdate: (callback: (event: Electron.IpcRendererEvent, progress: Progress) => void) => () => void;
             generateNewUserId: () => Promise<string>;
             onPeerConnectionRequest: (
                 callback: (
@@ -72,6 +83,14 @@ contextBridge.exposeInMainWorld('electron', {
         return () => {
             ipcRenderer.removeListener('peer-connection-request', callback);
         };
+    },
+
+    onProgressUpdate: (callback: (event: Electron.IpcRendererEvent, progress: Progress) => void): () => void => {
+        ipcRenderer.on('transfer-progress-update', callback);
+
+        return () => {
+            ipcRenderer.removeListener('progress-update', callback);
+        }
     },
 
 

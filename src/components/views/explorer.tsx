@@ -48,7 +48,6 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
     };
     const handleAddFilesClick = () => {
         handleOpenFile();
-        console.log('Opening file explorer...');
     };
 
     const formatFileSize = (bytes: number): string => {
@@ -77,8 +76,8 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
     const handleConfirmSend = () => {
         if (selectedPeerForSending && selectedFiles.length > 0) {
             selectedFiles.forEach(file => console.log("Selected File:", file.name));
-            onSendFilesToPeers(selectedFiles, [selectedPeerForSending]); // using list because program will send to multiple peers in the future
             handleCloseSendModal(); // Close modal after initiating send
+            onSendFilesToPeers(selectedFiles, [selectedPeerForSending]); // using list because program will send to multiple peers in the future
         } else {
             console.warn("No files selected or no peer chosen for sending.");
         }

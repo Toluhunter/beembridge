@@ -89,7 +89,7 @@ function createWindow() {
                 targetPeer.instanceId,
                 targetPeer.peerName,
                 (progress: Progress) => {
-                    console.log(`File transfer progress for ${file.name}: ${progress.percentage}%`);
+                    event.sender.send('transfer-progress-update', progress);
                 },
                 (result: Result) => {
                     console.error(`File transfer result for ${file.name}:`, result.status);
