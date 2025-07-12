@@ -48,7 +48,7 @@ const MAX_QUEUE_MEMORY_PER_FILE = 256 * 1024 * 1024;
 
 export function calculateFileHash(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const hash = createHash('sha256');
+        const hash = createHash('md5');
         const stream = fs.createReadStream(filePath);
 
         stream.on('data', (chunk) => {
@@ -309,7 +309,7 @@ export function handleIncomingFileTransfer(
 
 
     const reconstructFile = async (state: IncomingTransferState) => {
-        console.log("Reconstructing file from received chunks...");
+        console.log(`Reconstructing ${state.fileName} from received chunks...`);
         const missingChunks: number[] = [];
         for (let i = 0; i < state.totalChunks; i++) {
             if (!state.receivedChunkMap[i]) {
@@ -357,7 +357,7 @@ export function handleIncomingFileTransfer(
                     // Read each chunk file asynchronously
                     chunkBuffer = await fs.promises.readFile(chunkFilePath, { flag: 'r' });
                     const checksumChunk = createHash('md5').update(chunkBuffer).digest('hex');
-                    process.stdout.write(`\rVerifying chunk ${i + 1}/${state.totalChunks}... `);
+                    // process.stdout.write(`\rVerifying chunk ${i + 1}/${state.totalChunks}... \t\t ${state.fileName} `);
 
                     if (
                         checksumChunk !== debugInfo.chunkActualChecksum ||
@@ -425,25 +425,26 @@ export function handleIncomingFileTransfer(
     socket.on('data', async (data) => {
         try {
             const messages = frameParser.feed(data);
+
             for (const msg of messages) {
                 const header = msg.header as TransferMessage;
                 const payload = msg.payload;
 
-                if (currentFileId && header.fileId !== currentFileId) {
-                    console.warn(`[Receiver] Received message for unexpected fileId ${header.fileId} on socket for ${currentFileId}. Ignoring.`);
-                    continue;
-                }
+                // if (currentFileId && header.fileId !== currentFileId) {
+                //     console.warn(`[Receiver] Received message for unexpected fileId ${header.fileId} on socket for ${currentFileId}. Ignoring.`);
+                //     continue;
+                // }
+                currentFileId = header.fileId;
 
                 if (header.type === "FILE_METADATA") {
                     const metadata = header as FileMetadataMessage;
-                    if (activeReceivingTransfers.has(metadata.fileId)) {
+                    if (activeReceivingTransfers.has(currentFileId)) {
                         console.warn(`[Receiver] Duplicate metadata for file ID ${metadata.fileId}. Rejecting.`);
                         sendMetadataAck(metadata.fileId, false, "Duplicate transfer request");
                         return;
                     }
 
                     console.log(`[Receiver] Received metadata for file ${metadata.fileName} (${metadata.fileSize} bytes) from ${remotePeer.peerName}.`);
-                    currentFileId = metadata.fileId;
 
                     requestAcceptance(
                         metadata.fileId,
@@ -580,9 +581,10 @@ export function handleIncomingFileTransfer(
                     if (endMessage.status === "completed") {
                         if (state.timeoutTimer) clearTimeout(state.timeoutTimer);
                         state.timeoutTimer = null
-                        socket.removeAllListeners('data'); // Stop listening for further data
+                        // socket.removeAllListeners('data'); // Stop listening for further data
                         await waitForQueueDrain(state.fileId);
-                        await reconstructFile(state);
+                        reconstructFile(state);
+                        console.log(`Started Reconstruct file process for file: ${state.fileName} ........................................................................................................`);
                     } else {
                         state.onComplete({
                             fileId: currentFileId,

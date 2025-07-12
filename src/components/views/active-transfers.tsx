@@ -21,7 +21,6 @@ export const ActiveTransferView: React.FC = () => {
         if (window.electron) {
             // Start listening for progress updates
             const unsubscribe = window.electron.onProgressUpdate((_event, progress) => {
-                console.log(`Transfer progress for ${progress.fileName}: ${progress.percentage}%`);
 
                 setActiveTransfers(prevTransfers => {
                     const existingIndex = prevTransfers.findIndex(t => t.fileId === progress.fileId);

@@ -1,6 +1,5 @@
 // main.ts
 import { app, BrowserWindow, screen, ipcMain, dialog } from 'electron';
-import { FrameParser } from './utilities/framingProtocol';
 import { DiscoveredPeer, startDiscovery } from './utilities/peerDiscovery';
 import { connectToPeer, startTcpServer } from './utilities/peerConnection';
 import * as path from 'path';
@@ -82,25 +81,42 @@ function createWindow() {
         console.log("Sending files:", files.map(f => f.name));
         const targetPeer: DiscoveredPeer = peers[0]; // For now, just send to the first peer
         const socket = activeConnections.get(targetPeer.instanceId)?.socket as net.Socket;
-        files.forEach(file => {
-            initiateFileTransfer(
-                socket,
-                file.path,
-                targetPeer.instanceId,
-                targetPeer.peerName,
-                (progress: Progress) => {
-                    event.sender.send('transfer-progress-update', progress);
-                },
-                (result: Result) => {
-                    console.error(`File transfer result for ${file.name}:`, result.status);
-                },
-                (fileId: string, message: string) => {
-                    console.error(`File transfer error for ${file.name}: ${message}`);
-                }
-            )
 
-        });
+        // Queue and concurrency control
+        const fileQueue = [...files];
+        let activeTransfers = 0;
+        const MAX_CONCURRENT_TRANSFERS = 5;
 
+        async function sendNext() {
+            while (activeTransfers < MAX_CONCURRENT_TRANSFERS && fileQueue.length > 0) {
+                const file = fileQueue.shift();
+                if (!file) break;
+                activeTransfers++;
+                initiateFileTransfer(
+                    socket,
+                    file.path,
+                    targetPeer.instanceId,
+                    targetPeer.peerName,
+                    (progress: Progress) => {
+                        event.sender.send('transfer-progress-update', progress);
+                    },
+                    (result: Result) => {
+                        activeTransfers--;
+                        console.error(`File transfer result for ${file.name}:`, result.status);
+                        sendNext(); // Trigger next file transfer if any
+                    },
+                    (fileId: string, message: string) => {
+                        activeTransfers--;
+                        console.error(`File transfer error for ${file.name}: ${message}`);
+                        sendNext(); // Trigger next file transfer if any
+                    }
+                );
+                await new Promise(resolve => setTimeout(resolve, 1500)); // Small delay to avoid overwhelming the socket
+
+            }
+        }
+
+        sendNext();
     });
 
     ipcMain.on('start-tcp-server', (event) => {
@@ -113,16 +129,17 @@ function createWindow() {
             },
             (peer, socket) => {
                 console.log(`[RECEIVER] Connection ESTABLISHED with ${peer.peerName}.`);
-                socket.on('data', (data) => {
-                    try {
-                        const frameParser = new FrameParser();
-                        const message = frameParser.feed(data);
-                        console.log(`[RECEIVER] Received message from ${peer.peerName}:`, message);
-                        activeConnections.set(peer.instanceId, { peer, socket });
-                    } catch (e) {
-                        console.error("[RECEIVER] Error parsing data:", e);
-                    }
-                });
+                activeConnections.set(peer.instanceId, { peer, socket });
+                // socket.on('data', (data) => {
+                //     try {
+                //         const frameParser = new FrameParser();
+                //         const message = frameParser.feed(data);
+                //         // console.log(`[RECEIVER] Received message from ${peer.peerName}:`, message);
+                //         activeConnections.set(peer.instanceId, { peer, socket });
+                //     } catch (e) {
+                //         console.error("[RECEIVER] Error parsing data:", e);
+                //     }
+                // });
             },
             store.get('userId') // Pass the userId from the store
         );
@@ -188,15 +205,7 @@ function createWindow() {
                 (peer, socket) => {
                     console.log(`[SENDER] Connection ESTABLISHED with ${peer.peerName}.`);
                     activeConnections.set(peer.instanceId, { peer, socket });
-                    socket.on('data', (data) => {
-                        try {
-                            const frameParser = new FrameParser();
-                            const message = frameParser.feed(data);
-                            console.log(`[SENDER] Received message from ${peer.peerName}:`, message);
-                        } catch (e) {
-                            console.error("[SENDER] Error parsing data:", e);
-                        }
-                    });
+
                 },
                 peer.instanceId
             );

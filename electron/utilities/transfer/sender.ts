@@ -26,7 +26,7 @@ const RETRY_DELAY_MS = 1000; // 1 second delay before retrying a chunk
 
 export function calculateFileHash(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const hash = createHash('sha256');
+        const hash = createHash('md5');
         const stream = fs.createReadStream(filePath);
 
         stream.on('data', (chunk) => {
@@ -259,7 +259,7 @@ export async function initiateFileTransfer(
                 timestamp: Date.now(),
                 status: "completed",
             };
-            socket.off('data', handleSocketData); // Stop listening for data
+            // socket.off('data', handleSocketData); // Stop listening for data
             socket.on('data', awaitRetryRequests); // Listen for retry requests
             socket.write(buildFramedMessage(finalMessage));
             onComplete({ fileId, fileName, status: "completed", message: "Transfer complete", receivedFilePath: filePath });
@@ -319,6 +319,39 @@ export async function initiateFileTransfer(
         });
     };
 
+    let metadataRetryCount = 0;
+    const MAX_METADATA_RETRIES = 5;
+    const METADATA_RETRY_DELAY_MS = 5000;
+    let metadataRetryTimer: NodeJS.Timeout | null = null;
+    let metadataAckReceived = false;
+
+    async function sendMetadata(metadata: FileMetadataMessage) {
+        try {
+            console.log(`[Sender] Sending metadata for file ${fileName} (attempt ${metadataRetryCount + 1}/${MAX_METADATA_RETRIES})...`);
+            socket.write(buildFramedMessage(metadata));
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                const errMsg = `[Sender] Error sending metadata for file ${fileName}: ${err.message}`;
+                console.error(errMsg);
+                socket.end();
+            }
+        }
+    }
+
+    function scheduleMetadataRetry(metadata: FileMetadataMessage) {
+        if (metadataAckReceived) return;
+        if (metadataRetryCount >= MAX_METADATA_RETRIES) {
+            console.error(`[Sender] Error receiving file metadata acknowledgement for file ${fileName} after ${MAX_METADATA_RETRIES} attempts.`);
+            socket.end();
+            return;
+        }
+        metadataRetryTimer = setTimeout(async () => {
+            metadataRetryCount++;
+            await sendMetadata(metadata);
+            scheduleMetadataRetry(metadata);
+        }, METADATA_RETRY_DELAY_MS);
+    }
+
     const handleSocketData = async (data: Buffer) => {
         try {
             const messages = frameParser.feed(data);
@@ -333,6 +366,11 @@ export async function initiateFileTransfer(
                 switch (header.type) {
                     case "FILE_METADATA_ACK":
                         const ack = header as FileMetadataAckMessage;
+                        if (metadataRetryTimer) {
+                            clearTimeout(metadataRetryTimer);
+                            metadataRetryTimer = null;
+                        }
+                        metadataAckReceived = true;
                         if (ack.accepted) {
                             console.log(`[Sender] Receiver accepted metadata for ${fileName}. Starting transfer...`);
                             // Start sending the first chunk
@@ -433,7 +471,7 @@ export async function initiateFileTransfer(
         }
     };
 
-    socket.removeAllListeners('data'); // Clear any previous listeners
+    // socket.removeAllListeners('data'); // Clear any previous listeners
     socket.on('data', handleSocketData);
     socket.on('error', (err: Error) => {
         sendError(`Connection error during transfer: ${err.message}`);
@@ -447,22 +485,32 @@ export async function initiateFileTransfer(
         console.log(`[Sender] Socket closed for file ${fileName}.`);
     });
 
-    console.log(`[Sender] Calculating checksum for file ${fileName}...`);
-    const fileChecksum = await calculateFileHash(filePath)
-    const metadata: FileMetadataMessage = {
-        type: "FILE_METADATA",
-        fileId,
-        fileName,
-        fileSize,
-        totalChunks,
-        chunkSize: CHUNK_SIZE,
-        senderInstanceId,
-        fileChecksum: fileChecksum,
-        senderPeerName,
-        timestamp: Date.now(),
-    };
+    try {
+        console.log(`[Sender] Calculating checksum for file ${fileName}...`);
+        const fileChecksum = await calculateFileHash(filePath)
+        const metadata: FileMetadataMessage = {
+            type: "FILE_METADATA",
+            fileId,
+            fileName,
+            fileSize,
+            totalChunks,
+            chunkSize: CHUNK_SIZE,
+            senderInstanceId,
+            fileChecksum: fileChecksum,
+            senderPeerName,
+            timestamp: Date.now(),
+        };
 
-    console.log(`[Sender] Sending metadata for file ${fileName} (${fileSize} bytes)...`);
-    socket.write(buildFramedMessage(metadata));
+        metadataRetryCount = 0;
+        metadataAckReceived = false;
+        await sendMetadata(metadata);
+        scheduleMetadataRetry(metadata);
+    } catch (err: unknown) {
+        if (err instanceof Error) {
+            const errMsg = `[Sender] Error during calculation of checksum for file ${fileName}: ${err.message}`;
+            console.error(errMsg);
+            socket.end();
+        }
+    }
 }
 

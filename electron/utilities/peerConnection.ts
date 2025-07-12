@@ -375,13 +375,14 @@ if (require.main === module) {
                         },
                         (fileId, fileName, fileSize, senderPeerName, acceptFileCb, rejectFileCb) => {
                             // This is the prompt for the receiver to accept/reject the file itself
-                            rl.question(`\nReceive file '${fileName}' (${(fileSize / (1024 * 1024)).toFixed(2)}MB) from ${senderPeerName}? (y/n) `, (response) => {
-                                if (response.toLowerCase().trim() === 'y') {
-                                    acceptFileCb(fileId);
-                                } else {
-                                    rejectFileCb(fileId, "User denied file transfer.");
-                                }
-                            });
+                            acceptFileCb(fileId);
+                            // rl.question(`\nReceive file '${fileName}' (${(fileSize / (1024 * 1024)).toFixed(2)}MB) from ${senderPeerName}? (y/n) `, (response) => {
+                            //     if (response.toLowerCase().trim() === 'y') {
+                            //         acceptFileCb(fileId);
+                            //     } else {
+                            //         rejectFileCb(fileId, "User denied file transfer.");
+                            //     }
+                            // });
                         }
                     );
                 },
