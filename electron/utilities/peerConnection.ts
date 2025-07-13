@@ -316,18 +316,8 @@ if (require.main === module) {
     });
 
     const MY_INSTANCE_ID = Math.random().toString(36).substring(2, 15);
-    const TEST_FILE_PATH = path.join(__dirname, 'test.mkv'); // Path to a dummy file for testing
+    const TEST_FILE_PATHS = [ path.join(__dirname, 'test.mp4'), path.join(__dirname, 'test1.mp4') ]; // Path to a dummy file for testing
     let connectionAttemptTimer: NodeJS.Timeout | null = null;
-
-    // Create a dummy test file if it doesn't exist
-    // if (!fs.existsSync(TEST_FILE_PATH)) {
-    //     fs.writeFileSync(TEST_FILE_PATH, `This is a test file for transfer. Created on ${new Date().toISOString()}\n`);
-    //     for (let i = 0; i < 1000; i++) { // Make it a bit larger
-    //         fs.appendFileSync(TEST_FILE_PATH, `Line ${i}: Some dummy data to make the file bigger.\n`);
-    //     }
-    //     console.log(`Created dummy test file: ${TEST_FILE_PATH}`);
-    // }
-
 
     console.log("--- Peer Connection & File Transfer Test Mode ---");
     rl.question("Are you the sender or receiver? (s/r): ", async (answer) => { // Make async
@@ -421,27 +411,31 @@ if (require.main === module) {
                         (peer, socket) => {
                             console.log(`[SENDER] Connection ESTABLISHED with ${peer.peerName}. Initiating file transfer.`);
                             // Connection is established, now initiate file transfer
-                            initiateFileTransfer(
-                                socket,
-                                TEST_FILE_PATH,
-                                MY_INSTANCE_ID,
-                                MY_PEER_NAME,
-                                (progress) => {
-                                    // Update UI progress in a real app
-                                    process.stdout.write(`\r[SENDER] Sending ${progress.fileName}: ${progress.percentage.toFixed(2)}% (${(progress.transferredBytes / 1024).toFixed(0)}KB/${(progress.totalBytes / 1024).toFixed(0)}KB)`);
-                                },
-                                (result) => {
-                                    console.log(`\n[SENDER] Transfer ${result.fileName} ${result.status}.`);
-                                    // Cleanup UI/state in a real app
-                                    // socket.end(); // End connection after transfer
-                                    // process.exit(0); // Exit sender after transfer
-                                },
-                                (fileId, message) => {
-                                    console.error(`\n[SENDER] Transfer error for ${fileId}: ${message}`);
-                                    socket.end();
-                                    process.exit(1); // Exit sender on error
-                                }
-                            );
+
+                            TEST_FILE_PATHS.forEach((filePath) => {
+                              initiateFileTransfer(
+                                  socket,
+                                  filePath,
+                                  MY_INSTANCE_ID,
+                                  MY_PEER_NAME,
+                                  (progress) => {
+                                      // Update UI progress in a real app
+                                      process.stdout.write(`\r[SENDER] Sending ${progress.fileName}: ${progress.percentage.toFixed(2)}% (${(progress.transferredBytes / 1024).toFixed(0)}KB/${(progress.totalBytes / 1024).toFixed(0)}KB)`);
+                                  },
+                                  (result) => {
+                                      console.log(`\n[SENDER] Transfer ${result.fileName} ${result.status}.`);
+                                      // Cleanup UI/state in a real app
+                                      // socket.end(); // End connection after transfer
+                                      // process.exit(0); // Exit sender after transfer
+                                  },
+                                  (fileId, message) => {
+                                      console.error(`\n[SENDER] Transfer error for ${fileId}: ${message}`);
+                                      socket.end();
+                                      process.exit(1); // Exit sender on error
+                                  }
+                              );
+                              
+                            })
                         },
                         MY_INSTANCE_ID
                     );
