@@ -131,118 +131,6 @@ export async function initiateFileTransfer(
         });
     };
 
-    const resendChunk = async (chunkIndex: number) => {
-
-        let chunkToResend: Buffer | null = null;
-
-        // Try to re-read from disk if not in memory
-
-        const start = chunkIndex * CHUNK_SIZE;
-
-        const end = Math.min(start + CHUNK_SIZE, fileSize);
-
-        const length = end - start;
-
-        const fd = await fs.promises.open(filePath, 'r');
-
-        try {
-
-            const buffer = Buffer.alloc(length);
-
-            await fd.read(buffer, 0, length, start);
-
-            chunkToResend = buffer;
-
-        } finally {
-
-            await fd.close();
-
-        }
-
-        if (chunkToResend) {
-
-            console.log(`[Sender] Resending missing/corrupted chunk ${chunkIndex} for file ${fileName}.`);
-
-            try {
-
-                await sendFileChunk(chunkToResend, chunkIndex);
-
-            } catch (err: unknown) {
-
-                if (err instanceof Error) {
-
-                    const errMsg = `[Sender] Error resending chunk ${chunkIndex} for ${fileName}: ${err.message}`;
-
-                    console.error(errMsg);
-
-                    sendError(errMsg);
-
-                }
-
-            }
-
-        } else {
-
-            console.error(`[Sender] Attempted to resend unknown chunk ${chunkIndex} for file ${fileName}.`);
-
-            sendError(`Attempted to resend unknown chunk ${chunkIndex}`);
-
-        }
-
-    };
-
-
-    const awaitRetryRequests = async (data: Buffer) => {
-
-        const frameParser = new FrameParser();
-
-        try {
-
-            const messages = frameParser.feed(data);
-
-            for (const msg of messages) {
-
-                const header = msg.header as TransferMessage;
-
-
-                if (header.fileId !== fileId) {
-
-                    console.warn(`[Sender] Received message for unexpected fileId ${header.fileId}. Ignoring.`);
-
-                    continue;
-
-                }
-
-
-                if (header.type === "FILE_CHUNK_ACK") {
-
-                    const ack = header as FileChunkAckMessage;
-
-                    if (!ack.success && ack.reason) {
-
-                        console.warn(`[Sender] Receiver requested resend for chunk ${ack.chunkIndex} of ${fileName}: ${ack.reason}`);
-
-                        await resendChunk(ack.chunkIndex);
-
-                    }
-
-                }
-
-            }
-
-        } catch (e: unknown) {
-
-            if (e instanceof Error) {
-
-                console.error(`[Sender] Error parsing retry request data: ${e.message}`);
-
-            }
-
-        }
-
-    }
-
-
 
     const sendNextChunk = async () => {
         if (outstandingChunkIndex !== null) {
@@ -260,7 +148,7 @@ export async function initiateFileTransfer(
                 status: "completed",
             };
             // socket.off('data', handleSocketData); // Stop listening for data
-            socket.on('data', awaitRetryRequests); // Listen for retry requests
+            // socket.on('data', awaitRetryRequests); // Listen for retry requests
             socket.write(buildFramedMessage(finalMessage));
             onComplete({ fileId, fileName, status: "completed", message: "Transfer complete", receivedFilePath: filePath });
             return;
@@ -300,7 +188,6 @@ export async function initiateFileTransfer(
                     transferredBytes,
                     percentage: (transferredBytes / fileSize) * 100
                 });
-                console.log(`[Sender] Sent chunk ${chunkToProcess} for file ${fileName}. Awaiting ACK.`);
             } catch (err: unknown) {
                 if (err instanceof Error) {
                     const errMsg = `[Sender] Error sending chunk ${chunkToProcess} for ${fileName}: ${err.message}`;

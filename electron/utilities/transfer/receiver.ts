@@ -20,7 +20,6 @@ import {
     TransferErrorMessage,
 } from './types';
 
-const RECEIVED_FILES_BASE_DIR = path.join(process.cwd(), 'received_files_chunks'); // Base directory for storing received chunks
 
 interface ChunkDebugInfo {
     chunkActualSize: number; // Actual size of the chunk received
@@ -68,6 +67,7 @@ export function calculateFileHash(filePath: string): Promise<string> {
 
 export function handleIncomingFileTransfer(
     socket: net.Socket,
+    downloadDir: string,
     remotePeer: DiscoveredPeer,
     myInstanceId: string,
     myPeerName: string,
@@ -329,7 +329,7 @@ export function handleIncomingFileTransfer(
         await waitForQueueDrain(state.fileId);
 
         console.log(`\n\n[Receiver] All chunks for file ${state.fileName} received. Reconstructing file.`);
-        const outputFilePath = path.join(RECEIVED_FILES_BASE_DIR, state.fileId, `${state.fileName}`); // Final reconstructed file path
+        const outputFilePath = path.join(downloadDir, state.fileId, `${state.fileName}`); // Final reconstructed file path
 
         try {
             const writeStream = fs.createWriteStream(outputFilePath, { flags: 'w', mode: 0o666 });
@@ -452,7 +452,7 @@ export function handleIncomingFileTransfer(
                         metadata.fileSize,
                         remotePeer.peerName,
                         async (fileIdToAccept) => {
-                            const chunkStorageDir = path.join(RECEIVED_FILES_BASE_DIR, fileIdToAccept);
+                            const chunkStorageDir = path.join(downloadDir, fileIdToAccept);
                             const metadataFilePath = path.join(chunkStorageDir, 'metadata.json');
 
                             // Ensure chunk storage directory exists

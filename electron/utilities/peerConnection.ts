@@ -1,5 +1,7 @@
 // src/peerConnection.ts
 import * as net from 'net';
+import * as os from 'os';
+import * as fs from 'fs';
 import { MY_TCP_PORT, DiscoveredPeer, startDiscovery, stopDiscovery, getDiscoveredPeers } from './peerDiscovery';
 import { hostname } from 'os';
 import * as readline from 'readline';
@@ -316,7 +318,7 @@ if (require.main === module) {
     });
 
     const MY_INSTANCE_ID = Math.random().toString(36).substring(2, 15);
-    const TEST_FILE_PATHS = [ path.join(__dirname, 'test.mp4'), path.join(__dirname, 'test1.mp4') ]; // Path to a dummy file for testing
+    const TEST_FILE_PATHS = [path.join(__dirname, 'test.mp4'), path.join(__dirname, 'test1.mp4')]; // Path to a dummy file for testing
     let connectionAttemptTimer: NodeJS.Timeout | null = null;
 
     console.log("--- Peer Connection & File Transfer Test Mode ---");
@@ -345,10 +347,26 @@ if (require.main === module) {
                 (peer, socket) => {
                     // This callback fires when a connection is ESTABLISHED (after handshake)
                     console.log(`\n[RECEIVER] Connection ESTABLISHED with ${peer.peerName}. Preparing to receive files.`);
+                    const homeDir = os.homedir();
+
+                    // Construct the path to the downloads folder
+                    const downloadsDir = path.join(homeDir, 'Downloads');
+
+                    // Construct the path to the beembridge-received folder inside downloads
+                    const beembridgeReceivedDir = path.join(downloadsDir, 'beembridge-received');
+
+                    // Ensure the directory exists
+                    if (!fs.existsSync(beembridgeReceivedDir)) {
+                        fs.mkdirSync(beembridgeReceivedDir, { recursive: true });
+                    }
+
+                    // Construct the final download path
+                    const downloadDir = path.join(beembridgeReceivedDir, peer.instanceId);
 
                     // Now, tell the fileTransfer module to handle incoming messages on this socket
                     handleIncomingFileTransfer(
                         socket,
+                        downloadDir, // Use a specific download directory for received files
                         peer,
                         MY_INSTANCE_ID,
                         MY_PEER_NAME,
@@ -413,28 +431,28 @@ if (require.main === module) {
                             // Connection is established, now initiate file transfer
 
                             TEST_FILE_PATHS.forEach((filePath) => {
-                              initiateFileTransfer(
-                                  socket,
-                                  filePath,
-                                  MY_INSTANCE_ID,
-                                  MY_PEER_NAME,
-                                  (progress) => {
-                                      // Update UI progress in a real app
-                                      process.stdout.write(`\r[SENDER] Sending ${progress.fileName}: ${progress.percentage.toFixed(2)}% (${(progress.transferredBytes / 1024).toFixed(0)}KB/${(progress.totalBytes / 1024).toFixed(0)}KB)`);
-                                  },
-                                  (result) => {
-                                      console.log(`\n[SENDER] Transfer ${result.fileName} ${result.status}.`);
-                                      // Cleanup UI/state in a real app
-                                      // socket.end(); // End connection after transfer
-                                      // process.exit(0); // Exit sender after transfer
-                                  },
-                                  (fileId, message) => {
-                                      console.error(`\n[SENDER] Transfer error for ${fileId}: ${message}`);
-                                      socket.end();
-                                      process.exit(1); // Exit sender on error
-                                  }
-                              );
-                              
+                                initiateFileTransfer(
+                                    socket,
+                                    filePath,
+                                    MY_INSTANCE_ID,
+                                    MY_PEER_NAME,
+                                    (progress) => {
+                                        // Update UI progress in a real app
+                                        process.stdout.write(`\r[SENDER] Sending ${progress.fileName}: ${progress.percentage.toFixed(2)}% (${(progress.transferredBytes / 1024).toFixed(0)}KB/${(progress.totalBytes / 1024).toFixed(0)}KB)`);
+                                    },
+                                    (result) => {
+                                        console.log(`\n[SENDER] Transfer ${result.fileName} ${result.status}.`);
+                                        // Cleanup UI/state in a real app
+                                        // socket.end(); // End connection after transfer
+                                        // process.exit(0); // Exit sender after transfer
+                                    },
+                                    (fileId, message) => {
+                                        console.error(`\n[SENDER] Transfer error for ${fileId}: ${message}`);
+                                        socket.end();
+                                        process.exit(1); // Exit sender on error
+                                    }
+                                );
+
                             })
                         },
                         MY_INSTANCE_ID
