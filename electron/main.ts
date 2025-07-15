@@ -85,7 +85,7 @@ function createWindow() {
         // Queue and concurrency control
         const fileQueue = [...files];
         let activeTransfers = 0;
-        const MAX_CONCURRENT_TRANSFERS = 5;
+        const MAX_CONCURRENT_TRANSFERS = 2; // Limit concurrent transfers
 
         async function sendNext() {
             while (activeTransfers < MAX_CONCURRENT_TRANSFERS && fileQueue.length > 0) {
