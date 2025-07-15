@@ -258,7 +258,6 @@ export async function initiateFileTransfer(
             outstandingChunks.add(chunkIndexToSend);
             currentChunkIndex++;
 
-            // Using a self-invoking async function to send chunk without blocking the loop
             (async () => {
                 const start = chunkIndexToSend * CHUNK_SIZE;
                 const end = Math.min(start + CHUNK_SIZE, fileSize);
