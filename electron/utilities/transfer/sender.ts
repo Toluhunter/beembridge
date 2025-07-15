@@ -23,6 +23,7 @@ import {
 const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
 const MAX_RETRIES = 5; // Maximum number of retries for a chunk
 const RETRY_DELAY_MS = 1000; // 1 second delay before retrying a chunk
+const MAX_OUTSTANDING_CHUNKS = 16; // Number of chunks to send concurrently
 
 export function calculateFileHash(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -71,8 +72,7 @@ export async function initiateFileTransfer(
     const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
     let transferredBytes = 0;
     let currentChunkIndex = 0; // Represents the next chunk to be sent
-    let outstandingChunkIndex: number | null = null; // Chunk index awaiting ACK
-    let fileStream: fs.ReadStream | null = null;
+    const outstandingChunks = new Set<number>(); // Chunks awaiting ACK
     let pausedDueToBackpressure = false;
     let pausedDueToQueueFull = false;
     const chunkRetryCounts = new Map<number, number>(); // Map to store retry counts for each chunk
@@ -92,6 +92,8 @@ export async function initiateFileTransfer(
         socket.write(buildFramedMessage(errorMessage));
         onError(fileId, msg);
     };
+
+    let sendAvailableChunks: () => void;
 
     const sendFileChunk = (chunk: Buffer, chunkIndex: number): Promise<void> => {
         return new Promise((resolve, reject) => {
@@ -119,12 +121,10 @@ export async function initiateFileTransfer(
 
             if (!canWrite) {
                 pausedDueToBackpressure = true;
-                fileStream?.pause(); // Pause reading if socket buffer is full
                 socket.once('drain', () => {
                     pausedDueToBackpressure = false;
-                    // Only resume if not paused by queue full or awaiting ACK
-                    if (outstandingChunkIndex === null && !pausedDueToQueueFull) {
-                        fileStream?.resume();
+                    if (!pausedDueToQueueFull) {
+                        sendAvailableChunks();
                     }
                 });
             }
@@ -242,81 +242,58 @@ export async function initiateFileTransfer(
 
     }
 
-
-
-    const sendNextChunk = async () => {
-        if (outstandingChunkIndex !== null) {
-            // Still waiting for ACK for the current outstanding chunk
-            return;
-        }
-
-        if (currentChunkIndex >= totalChunks) {
-            const finalMessage: FileEndMessage = {
-                type: "FILE_END",
-                fileId,
-                senderInstanceId,
-                senderPeerName,
-                timestamp: Date.now(),
-                status: "completed",
-            };
-            // socket.off('data', handleSocketData); // Stop listening for data
-            socket.on('data', awaitRetryRequests); // Listen for retry requests
-            socket.write(buildFramedMessage(finalMessage));
-            onComplete({ fileId, fileName, status: "completed", message: "Transfer complete", receivedFilePath: filePath });
-            return;
-        }
-
+    sendAvailableChunks = () => {
         if (pausedDueToQueueFull) {
-            console.log(`[Sender] Paused due to receiver queue full. Will try again when queue is free.`);
+            console.log(`[Sender] Paused due to receiver queue full. Will not send new chunks.`);
             return;
         }
 
-        fileStream = fs.createReadStream(filePath, {
-            start: currentChunkIndex * CHUNK_SIZE,
-            end: Math.min((currentChunkIndex + 1) * CHUNK_SIZE, fileSize) - 1,
-            highWaterMark: CHUNK_SIZE
-        });
-
-        fileStream.once('data', async (chunk: string | Buffer) => {
-            fileStream!.destroy(); // Close the stream after reading one chunk
-            if (typeof chunk === 'string') {
-
-                console.error(`[Sender] Received string chunk instead of Buffer for file ${fileName}. Skipping chunk.`);
-
-                return;
-
+        while (outstandingChunks.size < MAX_OUTSTANDING_CHUNKS && currentChunkIndex < totalChunks) {
+            if (pausedDueToBackpressure) {
+                console.log(`[Sender] Paused due to backpressure. Will not send new chunks.`);
+                break; // Exit the loop, will be resumed on 'drain'
             }
 
-            const chunkToProcess = currentChunkIndex;
-            outstandingChunkIndex = chunkToProcess; // Mark this chunk as outstanding
+            const chunkIndexToSend = currentChunkIndex;
+            outstandingChunks.add(chunkIndexToSend);
+            currentChunkIndex++;
 
-            try {
-                await sendFileChunk(chunk, chunkToProcess);
-                transferredBytes = chunkToProcess * CHUNK_SIZE + chunk.length; // Approximate transferred bytes
-                onProgress({
-                    fileId,
-                    fileName,
-                    totalBytes: fileSize,
-                    transferredBytes,
-                    percentage: (transferredBytes / fileSize) * 100
-                });
-                console.log(`[Sender] Sent chunk ${chunkToProcess} for file ${fileName}. Awaiting ACK.`);
-            } catch (err: unknown) {
-                if (err instanceof Error) {
-                    const errMsg = `[Sender] Error sending chunk ${chunkToProcess} for ${fileName}: ${err.message}`;
-                    console.error(errMsg);
-                    sendError(errMsg);
-                    socket.end(); // Terminate transfer on critical send error
+            // Using a self-invoking async function to send chunk without blocking the loop
+            (async () => {
+                const start = chunkIndexToSend * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, fileSize);
+                const length = end - start;
+
+                const fd = await fs.promises.open(filePath, 'r');
+                try {
+                    const buffer = Buffer.alloc(length);
+                    await fd.read(buffer, 0, length, start);
+                    
+                    await sendFileChunk(buffer, chunkIndexToSend);
+
+                    transferredBytes += buffer.length;
+                    onProgress({
+                        fileId,
+                        fileName,
+                        totalBytes: fileSize,
+                        transferredBytes: transferredBytes,
+                        percentage: (transferredBytes / fileSize) * 100
+                    });
+                    console.log(`[Sender] Sent chunk ${chunkIndexToSend} for file ${fileName}.`);
+
+                } catch (err) {
+                    if (err instanceof Error) {
+                        const errMsg = `[Sender] Error sending chunk ${chunkIndexToSend} for ${fileName}: ${err.message}`;
+                        console.error(errMsg);
+                        sendError(errMsg);
+                        socket.end();
+                    }
+                    outstandingChunks.delete(chunkIndexToSend);
+                } finally {
+                    await fd.close();
                 }
-            }
-        });
-
-        fileStream.on('error', (err: NodeJS.ErrnoException) => {
-            const errMsg = `[Sender] File stream error for ${fileName} at chunk ${currentChunkIndex}: ${err.message}`;
-            console.error(errMsg);
-            sendError(errMsg);
-            socket.end();
-        });
+            })();
+        }
     };
 
     let metadataRetryCount = 0;
@@ -373,8 +350,7 @@ export async function initiateFileTransfer(
                         metadataAckReceived = true;
                         if (ack.accepted) {
                             console.log(`[Sender] Receiver accepted metadata for ${fileName}. Starting transfer...`);
-                            // Start sending the first chunk
-                            sendNextChunk();
+                            sendAvailableChunks();
                         } else {
                             const errMsg = `[Sender] Receiver rejected metadata for ${fileName}: ${ack.reason || 'Unknown reason'}`;
                             console.error(errMsg);
@@ -385,35 +361,42 @@ export async function initiateFileTransfer(
 
                     case "FILE_CHUNK_ACK":
                         const chunkAck = header as FileChunkAckMessage;
-                        if (outstandingChunkIndex === null || chunkAck.chunkIndex !== outstandingChunkIndex) {
-                            console.warn(`[Sender] Received ACK for unexpected chunk index ${chunkAck.chunkIndex}. Expected ${outstandingChunkIndex}. Ignoring.`);
+                        if (!outstandingChunks.has(chunkAck.chunkIndex)) {
+                            console.warn(`[Sender] Received ACK for unexpected chunk index ${chunkAck.chunkIndex}. Outstanding: ${[...outstandingChunks]}. Ignoring.`);
                             continue;
                         }
 
                         if (chunkAck.success) {
-                            outstandingChunkIndex = null; // Clear outstanding chunk
-                            chunkRetryCounts.delete(chunkAck.chunkIndex); // Clear retry count
-                            currentChunkIndex++; // Move to the next chunk
-                            sendNextChunk(); // Send the next chunk
+                            outstandingChunks.delete(chunkAck.chunkIndex);
+                            chunkRetryCounts.delete(chunkAck.chunkIndex);
+
+                            if (currentChunkIndex >= totalChunks && outstandingChunks.size === 0) {
+                                const finalMessage: FileEndMessage = {
+                                    type: "FILE_END",
+                                    fileId,
+                                    senderInstanceId,
+                                    senderPeerName,
+                                    timestamp: Date.now(),
+                                    status: "completed",
+                                };
+                                socket.on('data', awaitRetryRequests);
+                                socket.write(buildFramedMessage(finalMessage));
+                                onComplete({ fileId, fileName, status: "completed", message: "Transfer complete", receivedFilePath: filePath });
+                            } else {
+                                sendAvailableChunks();
+                            }
                         } else {
                             console.warn(`[Sender] Receiver requested resend for chunk ${chunkAck.chunkIndex} of ${fileName}: ${chunkAck.reason}`);
+                            outstandingChunks.delete(chunkAck.chunkIndex);
                             const retries = (chunkRetryCounts.get(chunkAck.chunkIndex) || 0) + 1;
 
                             if (retries <= MAX_RETRIES) {
                                 chunkRetryCounts.set(chunkAck.chunkIndex, retries);
                                 console.log(`[Sender] Retrying chunk ${chunkAck.chunkIndex} (attempt ${retries}/${MAX_RETRIES})...`);
-                                outstandingChunkIndex = null; // Allow re-sending of this chunk
-                                // Re-read the chunk and send after a delay
                                 setTimeout(async () => {
-                                    const start = chunkAck.chunkIndex * CHUNK_SIZE;
-                                    const end = Math.min(start + CHUNK_SIZE, fileSize);
-                                    const length = end - start;
-                                    const fd = await fs.promises.open(filePath, 'r');
                                     try {
-                                        const buffer = Buffer.alloc(length);
-                                        await fd.read(buffer, 0, length, start);
-                                        outstandingChunkIndex = chunkAck.chunkIndex; // Mark as outstanding again
-                                        await sendFileChunk(buffer, chunkAck.chunkIndex);
+                                        outstandingChunks.add(chunkAck.chunkIndex);
+                                        await resendChunk(chunkAck.chunkIndex);
                                         console.log(`[Sender] Resent chunk ${chunkAck.chunkIndex}. Awaiting ACK.`);
                                     } catch (err: unknown) {
                                         if (err instanceof Error) {
@@ -422,8 +405,6 @@ export async function initiateFileTransfer(
                                             sendError(errMsg);
                                             socket.end();
                                         }
-                                    } finally {
-                                        await fd.close();
                                     }
                                 }, RETRY_DELAY_MS);
                             } else {
@@ -439,16 +420,13 @@ export async function initiateFileTransfer(
                         const queueFullMessage = header as QueueFullMessage;
                         console.warn(`[Sender] Receiver queue full for file ${fileName}: ${queueFullMessage.message}`);
                         pausedDueToQueueFull = true;
-                        // Don't resume fileStream here, it's handled by sendNextChunk or on drain
                         break;
 
                     case "QUEUE_FREE":
                         const queueFreeMessage = header as QueueFreeMessage;
                         console.log(`[Sender] Receiver queue free for file ${fileName}: ${queueFreeMessage.message}`);
                         pausedDueToQueueFull = false;
-                        if (outstandingChunkIndex === null && !pausedDueToBackpressure) {
-                            sendNextChunk(); // Attempt to send the next chunk now
-                        }
+                        sendAvailableChunks();
                         break;
 
                     case "TRANSFER_ERROR":
@@ -471,7 +449,6 @@ export async function initiateFileTransfer(
         }
     };
 
-    // socket.removeAllListeners('data'); // Clear any previous listeners
     socket.on('data', handleSocketData);
     socket.on('error', (err: Error) => {
         sendError(`Connection error during transfer: ${err.message}`);
@@ -479,9 +456,6 @@ export async function initiateFileTransfer(
     });
 
     socket.on('close', () => {
-        if (fileStream) {
-            fileStream.destroy();
-        }
         console.log(`[Sender] Socket closed for file ${fileName}.`);
     });
 
@@ -513,4 +487,3 @@ export async function initiateFileTransfer(
         }
     }
 }
-
