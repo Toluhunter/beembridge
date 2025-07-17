@@ -35,6 +35,8 @@ declare global {
             getUsername: () => Promise<string>;
             setUsername: (newUsername: string) => Promise<boolean>;
             getUserId: () => Promise<string>;
+            getStoragePath: () => Promise<string>;
+            setStoragePath: () => Promise<boolean | string>;
             onProgressUpdate: (callback: (event: Electron.IpcRendererEvent, progress: Progress) => void) => () => void;
             generateNewUserId: () => Promise<string>;
             onPeerConnectionRequest: (
@@ -119,6 +121,15 @@ contextBridge.exposeInMainWorld('electron', {
     getAppVersion: async (): Promise<string> => {
         const version = await ipcRenderer.invoke('get-app-version');
         return version;
+    },
+
+    getStoragePath: async (): Promise<string> => {
+        const storagePath = await ipcRenderer.invoke('get-storage-path');
+        return storagePath;
+    },
+    setStoragePath: async (): Promise<boolean> => {
+        const success = await ipcRenderer.invoke('set-storage-path');
+        return success;
     },
 
     getUsername: async (): Promise<string> => {

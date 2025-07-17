@@ -3,6 +3,7 @@ import { app, BrowserWindow, screen, ipcMain, dialog } from 'electron';
 import { DiscoveredPeer, startDiscovery } from './utilities/peerDiscovery';
 import { connectToPeer, startTcpServer } from './utilities/peerConnection';
 import * as path from 'path';
+import * as os from 'os';
 import * as url from 'url';
 import * as dotenv from 'dotenv';
 import * as net from 'net';
@@ -11,16 +12,29 @@ import { v4 as uuidv4 } from 'uuid'; // npm install uuid
 import * as fs from 'fs';
 import { Progress, Result } from './utilities/transfer/types';
 import { initiateFileTransfer } from './utilities/transfer/sender';
+import { handleIncomingFileTransfer } from './utilities/transfer/receiver';
 dotenv.config();
 
 let mainWindow: BrowserWindow | null;
 
 const isDev = process.env.NODE_ENV === 'development';
 
-const store = new Store<{ userName: string, userId: string }>({
+const homeDir = os.homedir();
+const downloadsDir = path.join(homeDir, 'Downloads');
+
+// Construct the path to the beembridge-received folder inside downloads
+const beembridgeReceivedDir = path.join(downloadsDir, 'beembridge-received');
+
+// Ensure the directory exists
+if (!fs.existsSync(beembridgeReceivedDir)) {
+    fs.mkdirSync(beembridgeReceivedDir, { recursive: true });
+}
+
+const store = new Store<{ userName: string, userId: string, storagePath: string }>({
     defaults: {
         userName: `BeemBridge User`,
         userId: `BB_USER_${crypto.randomUUID().replace(/-/g, '').substring(0, 10).toUpperCase()}`,
+        storagePath: beembridgeReceivedDir
     },
 });
 
@@ -130,16 +144,34 @@ function createWindow() {
             (peer, socket) => {
                 console.log(`[RECEIVER] Connection ESTABLISHED with ${peer.peerName}.`);
                 activeConnections.set(peer.instanceId, { peer, socket });
-                // socket.on('data', (data) => {
-                //     try {
-                //         const frameParser = new FrameParser();
-                //         const message = frameParser.feed(data);
-                //         // console.log(`[RECEIVER] Received message from ${peer.peerName}:`, message);
-                //         activeConnections.set(peer.instanceId, { peer, socket });
-                //     } catch (e) {
-                //         console.error("[RECEIVER] Error parsing data:", e);
-                //     }
-                // });
+                handleIncomingFileTransfer(
+                    socket,
+                    store.get('storagePath'),
+                    peer,
+                    store.get('userId'),
+                    store.get('userName'),
+                    (progress: Progress) => {
+                        event.sender.send('transfer-progress-update', progress);
+                    },
+                    (result: Result) => {
+                        console.error(`File transfer result for ${result.fileName}:`, result.status);
+                    },
+                    (fileId: string, message: string) => {
+                        console.error(`File transfer error for ${fileId}: ${message}`);
+                    }
+                    ,
+                    (
+                        fileId: string,
+                        fileName: string,
+                        fileSize: number,
+                        senderPeerName: string,
+                        accept: (fileId: string) => void,
+                        reject: (fileId: string, reason: string) => void,
+                    ) => {
+                        console.log(`[RECEIVER] File received from ${senderPeerName}: ${fileName}`);
+                        accept(fileId); // Automatically accept the file transfer
+                    }
+                )
             },
             store.get('userId') // Pass the userId from the store
         );
@@ -230,6 +262,33 @@ function createWindow() {
         const userName = store.get('userName');
         console.log('Renderer requested username:', userName);
         return userName;
+    });
+
+    ipcMain.handle('set-storage-path', async () => {
+        try {
+            // Open dialog for selecting a single directory
+            const { canceled, filePaths } = await dialog.showOpenDialog({
+                properties: ['openDirectory', 'dontAddToRecent'],
+                title: 'Select Storage Directory',
+                message: 'Choose a folder to store received files',
+            });
+            if (canceled || filePaths.length === 0) {
+                return false;
+            }
+            const selectedDir = filePaths[0];
+            store.set('storagePath', selectedDir);
+            console.log('Storage path updated to:', selectedDir);
+            return selectedDir;
+        } catch (error) {
+            console.error('Error setting storage path:', error);
+            return false;
+        }
+    });
+
+    ipcMain.handle('get-storage-path', async () => {
+        const storagePath = store.get('storagePath');
+        console.log('Renderer requested storage path:', storagePath);
+        return storagePath;
     });
 
     ipcMain.handle('set-username', async (_event, newUserName: string) => {

@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 
+export interface ActiveTransferDisplayItem extends Progress {
+    status: 'pending' | 'in-progress' | 'completed' | 'failed' | 'cancelled';
+}
 export type Progress = {
     fileId: string;
     fileName: string;
@@ -9,53 +12,21 @@ export type Progress = {
     speedKbps?: number; // Optional: speed calculation
 }
 
-export const ActiveTransferView: React.FC = () => {
-    // Define an internal interface that extends Progress to include the display status
-    interface ActiveTransferDisplayItem extends Progress {
-        status: 'pending' | 'in-progress' | 'completed' | 'failed' | 'cancelled';
-    }
+interface ActiveTransferViewProps {
+    activeTransfers: ActiveTransferDisplayItem[],
+}
 
-    const [activeTransfers, setActiveTransfers] = useState<ActiveTransferDisplayItem[]>([]);
+export const ActiveTransferView: React.FC<ActiveTransferViewProps> = ({ activeTransfers }) => {
+    // Define an internal interface that extends Progress to include the display status
+
 
     useEffect(() => {
         if (window.electron) {
             // Start listening for progress updates
-            const unsubscribe = window.electron.onProgressUpdate((_event, progress) => {
-
-                setActiveTransfers(prevTransfers => {
-                    const existingIndex = prevTransfers.findIndex(t => t.fileId === progress.fileId);
-
-                    let derivedStatus: ActiveTransferDisplayItem['status'] = 'in-progress';
-                    if (progress.percentage === 100) {
-                        derivedStatus = 'completed';
-                    } else if (progress.percentage === -1) { // Assuming -1 or some specific value indicates failure
-                        derivedStatus = 'failed';
-                    } else if (progress.percentage === 0 && progress.transferredBytes === 0) {
-                        derivedStatus = 'pending';
-                    }
-
-                    const updatedDisplayItem: ActiveTransferDisplayItem = { ...progress, status: derivedStatus };
-
-                    if (existingIndex > -1) {
-                        // Update existing transfer
-                        const updatedTransfers = [...prevTransfers];
-                        updatedTransfers[existingIndex] = updatedDisplayItem;
-                        return updatedTransfers;
-                    } else {
-                        // Add new transfer
-                        return [...prevTransfers, updatedDisplayItem];
-                    }
-                });
-            });
-
-            // Stop listening for progress updates when the component unmounts
-            return () => {
-                unsubscribe();
-            };
         } else {
             console.warn('Electron API not available. Are you running in Electron?');
         }
-    }, []);
+    });
 
     const getStatusColor = (status: ActiveTransferDisplayItem['status']) => {
         switch (status) {

@@ -4,17 +4,19 @@ import React, { useState, useEffect } from 'react';
 interface SettingsViewProps {
     currentUserName: string;
     currentUserId: string;
-    // onUpdateUserName now directly interacts with the main process
-    // It's a simpler signature as the logic for persistence is in this component
+    storagePath: string;
     onUpdateUserNameInMainProcess: (newName: string) => Promise<boolean>;
     onGenerateNewUserId: () => Promise<void>;
+    onSetStoragePath: () => Promise<void>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
     currentUserName,
     currentUserId,
-    onUpdateUserNameInMainProcess, // Renamed prop for clarity
+    storagePath,
+    onUpdateUserNameInMainProcess,
     onGenerateNewUserId,
+    onSetStoragePath
 }) => {
     // These states now live here, controlling the username editing UI
     const [tempUserName, setTempUserName] = useState(currentUserName);
@@ -124,6 +126,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 >
                     Generate New ID
                 </button>
+            </div>
+
+            {/* Storage Path Section */}
+            <div className="mb-8 p-6 bg-gray-900 rounded-xl border border-gray-700">
+                <h2 className="text-2xl font-semibold text-white mb-4">Storage Path</h2>
+                <p className="text-gray-300 text-lg mb-4 break-all">
+                    Files will be saved to: <span className="font-mono bg-gray-700 p-2 rounded-md">{storagePath}</span>
+                </p>
+                <button
+                    onClick={onSetStoragePath}
+                    className="modern-button text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors duration-200"
+                >
+                    Set Storage Path
+                </button>
+
             </div>
 
             {/* Profile Picture Section (Placeholder) */}

@@ -4,7 +4,7 @@ import { PeerView } from '@/components/views/peers';
 import { DiscoveredPeer } from '@/components/views/peers';
 import { ExplorerView, SelectedFile } from '@/components/views/explorer';
 import { TransferHistoryView } from '@/components/views/transfer-history';
-import { ActiveTransferView } from '@/components/views/active-transfers';
+import { ActiveTransferView, ActiveTransferDisplayItem } from '@/components/views/active-transfers';
 import { SettingsView } from '@/components/views/settings';
 
 // Define an interface for a Peer object (example)
@@ -33,6 +33,8 @@ const App = () => {
   const [connectedPeers, setConnectedPeers] = useState<DiscoveredPeer[]>([]);
   const [userName, setUserName] = useState("BeemBridge User"); // Made userName mutable
   const [userId, setUserId] = useState("BB_USER_1234567890"); // Made userId mutable
+  const [storagePath, setStoragePath] = useState<string>("");
+  const [activeTransfers, setActiveTransfers] = useState<ActiveTransferDisplayItem[]>([]);
 
   const handleAddSelectedFiles = (newFiles: SelectedFile[]) => {
     const uniqueNewFiles = newFiles.filter(newFile =>
@@ -101,6 +103,25 @@ const App = () => {
     }
   };
 
+  // function to handle setting of storage path
+  const handleSetStoragePath = async () => {
+    if (window.electron) {
+      try {
+        const newPath = await window.electron.setStoragePath();
+        if (newPath) {
+          setStoragePath(newPath as string);
+          console.log("Storage path updated:", newPath);
+        } else {
+          console.warn("Failed to set storage path.");
+        }
+      } catch (error) {
+        console.error('Failed to set storage path:', error);
+      }
+    } else {
+      console.warn('Electron API not available for setting storage path.');
+    }
+  };
+
   const toggleSidebar = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
   };
@@ -113,6 +134,8 @@ const App = () => {
         try {
           const loadedUsername = await window.electron.getUsername();
           const loadedUserId = await window.electron.getUserId();
+          const loadStoragePath = await window.electron.getStoragePath();
+          setStoragePath(loadStoragePath);
           setUserId(loadedUserId);
           setUserName(loadedUsername);
         } catch (error) {
@@ -121,6 +144,38 @@ const App = () => {
         }
       };
       loadUsername();
+      const unsubscribe = window.electron.onProgressUpdate((_event, progress) => {
+
+        setActiveTransfers(prevTransfers => {
+          const existingIndex = prevTransfers.findIndex(t => t.fileId === progress.fileId);
+
+          let derivedStatus: ActiveTransferDisplayItem['status'] = 'in-progress';
+          if (progress.percentage === 100) {
+            derivedStatus = 'completed';
+          } else if (progress.percentage === -1) { // Assuming -1 or some specific value indicates failure
+            derivedStatus = 'failed';
+          } else if (progress.percentage === 0 && progress.transferredBytes === 0) {
+            derivedStatus = 'pending';
+          }
+
+          const updatedDisplayItem: ActiveTransferDisplayItem = { ...progress, status: derivedStatus };
+
+          if (existingIndex > -1) {
+            // Update existing transfer
+            const updatedTransfers = [...prevTransfers];
+            updatedTransfers[existingIndex] = updatedDisplayItem;
+            return updatedTransfers;
+          } else {
+            // Add new transfer
+            return [...prevTransfers, updatedDisplayItem];
+          }
+        });
+      });
+
+      // Stop listening for progress updates when the component unmounts
+      return () => {
+        unsubscribe();
+      };
 
       // Start peer discovery when the app loads
     } else {
@@ -219,7 +274,9 @@ const App = () => {
         )}
 
         {activeView === 'active-transfers' && ( // New view for Active Transfers
-          <ActiveTransferView />
+          <ActiveTransferView
+            activeTransfers={activeTransfers}
+          />
         )}
 
         {activeView === 'explorer' && (
@@ -236,8 +293,10 @@ const App = () => {
           <SettingsView
             currentUserName={userName}
             currentUserId={userId}
+            storagePath={storagePath}
             onUpdateUserNameInMainProcess={handleUpdateUserNameInMainProcess}
             onGenerateNewUserId={handleGenerateNewUserIdInMainProcess}
+            onSetStoragePath={handleSetStoragePath} // Pass the storage path handler`
           />
         )}
       </main>
