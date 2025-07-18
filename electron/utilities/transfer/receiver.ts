@@ -374,7 +374,10 @@ export function handleIncomingFileTransfer(
 
                 // Final integrity check before writing the chunk to the final file.
                 if (checksumChunk !== debugInfo.chunkActualChecksum || chunkBuffer.length !== debugInfo.chunkActualSize) {
-                    throw new Error(`Integrity mismatch during reconstruction for chunk ${i}`);
+                    console.log(`Integrity mismatch during reconstruction for chunk ${i}`);
+                    sendChunkAck(state.fileId, i, false, "Missing chunk, please retransmit");
+                    i--;
+                    continue;
                 }
 
                 const canWriteMore = writeStream.write(chunkBuffer);
@@ -382,6 +385,7 @@ export function handleIncomingFileTransfer(
                 if (!canWriteMore) {
                     await new Promise<void>(resolve => writeStream.once('drain', resolve));
                 }
+                await fs.promises.unlink(chunkFilePath)
             }
 
             await new Promise<void>((resolve, reject) => {
