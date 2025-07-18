@@ -73,7 +73,7 @@ export async function initiateFileTransfer(
     onComplete: TransferCompleteCallback,
     onError: (fileId: string, message: string) => void
 ): Promise<void> {
-    const fileId = uuidv4(); // Generate a unique ID for this transfer.
+    const fileId = await calculateFileHash(filePath);
     const fileName = path.basename(filePath);
     let fileSize: number;
 
@@ -438,7 +438,6 @@ export async function initiateFileTransfer(
     // Calculate file checksum and send the initial metadata message.
     try {
         console.log(`[Sender] Calculating checksum for file ${fileName}...`);
-        const fileChecksum = await calculateFileHash(filePath);
         const metadata: FileMetadataMessage = {
             type: "FILE_METADATA",
             fileId,
@@ -447,7 +446,6 @@ export async function initiateFileTransfer(
             totalChunks,
             chunkSize: CHUNK_SIZE,
             senderInstanceId,
-            fileChecksum: fileChecksum,
             senderPeerName,
             timestamp: Date.now(),
         };

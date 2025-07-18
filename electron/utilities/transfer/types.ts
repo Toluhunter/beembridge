@@ -16,7 +16,6 @@ export interface FileMetadataMessage extends BaseTransferMessage {
     fileSize: number;
     totalChunks: number;
     chunkSize: number; // Nominal chunk size used by sender
-    fileChecksum: string; // MD5 checksum of the entire file
 }
 
 export interface FileMetadataAckMessage extends BaseTransferMessage {
@@ -66,11 +65,10 @@ export interface IncomingTransferState {
     fileId: string;
     fileName: string;
     fileSize: number;
-    fileChecksum: string; // MD5 checksum of the entire file
     totalChunks: number;
     receivedBytes: number;
-    // Map to store received chunk filenames for reconstruction
-    receivedChunkMap: { [chunkIndex: number]: string };
+    // Map to store received chunk info (path and checksum) for reconstruction
+    receivedChunkMap: { [chunkIndex: number]: { chunkPath: string; chunkChecksum: string } };
     chunkStorageDir: string;
     metadataFilePath: string;
     timeoutTimer: NodeJS.Timeout | null;

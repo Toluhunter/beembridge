@@ -230,7 +230,7 @@ export function handleIncomingFileTransfer(
                 if (!state.receivedChunkMap[chunkIndex]) {
                     state.receivedBytes += chunkBuffer.length;
                 }
-                state.receivedChunkMap[chunkIndex] = chunkFileName;
+                state.receivedChunkMap[chunkIndex] = { chunkPath: chunkFileName, chunkChecksum: checksum };
                 await fs.promises.writeFile(state.metadataFilePath, JSON.stringify(state.receivedChunkMap, null, 2));
 
                 // Report progress.
@@ -349,7 +349,7 @@ export function handleIncomingFileTransfer(
 
         // --- File Assembly Logic ---
         console.log(`[Receiver] All chunks for file ${state.fileName} received. Reconstructing file.`);
-        const outputFilePath = path.join(downloadDir, state.fileId, `${state.fileName}`); // Final reconstructed file path
+        const outputFilePath = path.join(downloadDir, `${state.fileName}`); // Final reconstructed file path
 
         try {
             // Create a write stream for the final file.
@@ -360,8 +360,11 @@ export function handleIncomingFileTransfer(
             });
 
             for (let i = 0; i < state.totalChunks; i++) {
-                const chunkFileName = state.receivedChunkMap[i];
-                const chunkFilePath = path.join(state.chunkStorageDir, chunkFileName);
+                const chunkInfo = state.receivedChunkMap[i];
+                if (!chunkInfo || !chunkInfo.chunkPath) {
+                    throw new Error(`Missing chunk info or path for chunk ${i}`);
+                }
+                const chunkFilePath = path.join(state.chunkStorageDir, chunkInfo.chunkPath);
                 const debugInfo = chunkDebugList.get(i);
 
                 // This should not happen, but it's a safeguard.
@@ -385,8 +388,8 @@ export function handleIncomingFileTransfer(
                 if (!canWriteMore) {
                     await new Promise<void>(resolve => writeStream.once('drain', resolve));
                 }
-                await fs.promises.unlink(chunkFilePath)
             }
+            // await fs.promises.rm(state.chunkStorageDir, { recursive: true, force: true });
 
             await new Promise<void>((resolve, reject) => {
                 writeStream.end(() => resolve());
@@ -395,7 +398,7 @@ export function handleIncomingFileTransfer(
 
             // Verify the checksum of the fully reconstructed file.
             const fileChecksum = await calculateFileHash(outputFilePath);
-            if (fileChecksum !== state.fileChecksum) {
+            if (fileChecksum !== state.fileId) {
                 throw new Error(`Final file checksum mismatch for ${state.fileName}`);
             }
 
@@ -455,10 +458,9 @@ export function handleIncomingFileTransfer(
                                 fileId: fileIdToAccept,
                                 fileName: metadata.fileName,
                                 fileSize: metadata.fileSize,
-                                fileChecksum: metadata.fileChecksum,
                                 totalChunks: metadata.totalChunks,
                                 receivedBytes: 0,
-                                receivedChunkMap: new Array(metadata.totalChunks),
+                                receivedChunkMap: {},
                                 chunkStorageDir,
                                 metadataFilePath,
                                 timeoutTimer: null,
@@ -476,8 +478,13 @@ export function handleIncomingFileTransfer(
                                     const metadataContent = await fs.promises.readFile(metadataFilePath, 'utf8');
                                     initialState.receivedChunkMap = JSON.parse(metadataContent);
                                     initialState.receivedBytes = Object.keys(initialState.receivedChunkMap).reduce((acc, chunkIndexStr) => {
-                                        const chunkFilePath = path.join(initialState.chunkStorageDir, initialState.receivedChunkMap[parseInt(chunkIndexStr)]);
-                                        return fs.existsSync(chunkFilePath) ? acc + fs.statSync(chunkFilePath).size : acc;
+                                        const chunkIndex = parseInt(chunkIndexStr, 10);
+                                        const chunkInfo = initialState.receivedChunkMap[chunkIndex];
+                                        if (chunkInfo && chunkInfo.chunkPath) {
+                                            const chunkFilePath = path.join(initialState.chunkStorageDir, chunkInfo.chunkPath);
+                                            return fs.existsSync(chunkFilePath) ? acc + fs.statSync(chunkFilePath).size : acc;
+                                        }
+                                        return acc;
                                     }, 0);
                                     console.log(`[Receiver] Resuming transfer for ${metadata.fileName}. Already received ${initialState.receivedBytes} bytes.`);
                                 }
@@ -629,7 +636,6 @@ export function handleIncomingFileTransfer(
             });
             if (state.timeoutTimer) clearTimeout(state.timeoutTimer);
             activeReceivingTransfers.delete(currentFileId);
-            await fs.promises.rm(state.chunkStorageDir, { recursive: true, force: true });
         }
         currentFileId = null;
         frameParser.reset();
@@ -650,7 +656,6 @@ export function handleIncomingFileTransfer(
             });
             if (state.timeoutTimer) clearTimeout(state.timeoutTimer);
             activeReceivingTransfers.delete(currentFileId);
-            await fs.promises.rm(state.chunkStorageDir, { recursive: true, force: true });
         }
         currentFileId = null;
         frameParser.reset();
