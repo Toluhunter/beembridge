@@ -323,6 +323,10 @@ export async function initiateFileTransfer(
                         const ack = header as FileMetadataAckMessage;
                         if (ack.accepted) {
                             console.log(`[Sender] Receiver accepted metadata for ${fileName}. Starting transfer...`);
+                            if(ack.existingTransfer) {
+                                console.log(`[Sender] Resuming existing transfer for ${fileName}.`);
+                                currentChunkIndex = ack.continueIndex || 0;
+                            }
                             sendAvailableChunks(); // Start the chunk sending process.
                         } else {
                             const errMsg = `[Sender] Receiver rejected metadata for ${fileName}: ${ack.reason || 'Unknown reason'}`;

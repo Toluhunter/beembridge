@@ -136,12 +136,14 @@ export function handleIncomingFileTransfer(
      * @param accepted Whether the file transfer was accepted.
      * @param reason An optional reason for rejection.
      */
-    const sendMetadataAck = (fileId: string, accepted: boolean, reason?: string): void => {
+    const sendMetadataAck = (fileId: string, accepted: boolean, existingTransfer: boolean, reason?: string, continueIndex?: number): void => {
         const ack: FileMetadataAckMessage = {
             type: "FILE_METADATA_ACK",
             fileId: fileId,
             senderInstanceId: myInstanceId,
             senderPeerName: myPeerName,
+            existingTransfer: existingTransfer,
+            continueIndex: continueIndex,
             timestamp: Date.now(),
             accepted: accepted,
             reason: reason
@@ -436,7 +438,7 @@ export function handleIncomingFileTransfer(
                     // --- Handle Initial Transfer Request ---
                     const metadata = header as FileMetadataMessage;
                     if (activeReceivingTransfers.has(currentFileId)) {
-                        sendMetadataAck(metadata.fileId, false, "Duplicate transfer request");
+                        sendMetadataAck(metadata.fileId, false, false, "Duplicate transfer request");
                         return;
                     }
 
@@ -472,28 +474,75 @@ export function handleIncomingFileTransfer(
                             };
                             activeReceivingTransfers.set(fileIdToAccept, initialState);
 
+                            let existingTransfer = false;
+                            let continueIndex: number | undefined = undefined;
+
                             try {
-                                // Check for existing metadata to resume a partial transfer.
-                                if (fs.existsSync(metadataFilePath)) {
-                                    const metadataContent = await fs.promises.readFile(metadataFilePath, 'utf8');
-                                    initialState.receivedChunkMap = JSON.parse(metadataContent);
-                                    initialState.receivedBytes = Object.keys(initialState.receivedChunkMap).reduce((acc, chunkIndexStr) => {
-                                        const chunkIndex = parseInt(chunkIndexStr, 10);
-                                        const chunkInfo = initialState.receivedChunkMap[chunkIndex];
-                                        if (chunkInfo && chunkInfo.chunkPath) {
-                                            const chunkFilePath = path.join(initialState.chunkStorageDir, chunkInfo.chunkPath);
-                                            return fs.existsSync(chunkFilePath) ? acc + fs.statSync(chunkFilePath).size : acc;
+                                // Check if metadata file exists to determine if this is a resumption.
+                                await fs.promises.stat(metadataFilePath);
+                                existingTransfer = true;
+                                console.log(`[Receiver] Found existing metadata for ${initialState.fileName}. Verifying chunks...`);
+
+                                const metadataContent = await fs.promises.readFile(metadataFilePath, 'utf8');
+                                const savedReceivedChunkMap = JSON.parse(metadataContent);
+                                
+                                let lastValidChunkIndex = -1;
+                                let validatedReceivedBytes = 0;
+                                const validatedChunkMap: { [chunkIndex: number]: { chunkPath: string; chunkChecksum: string } } = {};
+
+                                const sortedChunkIndices = Object.keys(savedReceivedChunkMap).map(Number).sort((a, b) => a - b);
+
+                                for (const chunkIndex of sortedChunkIndices) {
+                                    const chunkInfo = savedReceivedChunkMap[chunkIndex];
+                                    if (!chunkInfo || !chunkInfo.chunkPath || !chunkInfo.chunkChecksum) continue;
+
+                                    const chunkFilePath = path.join(initialState.chunkStorageDir, chunkInfo.chunkPath);
+                                    
+                                    try {
+                                        // Check if chunk file exists before trying to hash it.
+                                        await fs.promises.stat(chunkFilePath);
+                                        const calculatedHash = await calculateFileHash(chunkFilePath);
+
+                                        if (calculatedHash === chunkInfo.chunkChecksum) {
+                                            // This chunk is valid, keep it.
+                                            lastValidChunkIndex = chunkIndex;
+                                            validatedChunkMap[chunkIndex] = chunkInfo;
+                                            const stats = await fs.promises.stat(chunkFilePath);
+                                            validatedReceivedBytes += stats.size;
+                                        } else {
+                                            // Hash mismatch, this and all subsequent chunks are invalid.
+                                            console.warn(`[Receiver] Checksum mismatch for chunk ${chunkIndex}. Resuming transfer from before this chunk.`);
+                                            break; 
                                         }
-                                        return acc;
-                                    }, 0);
-                                    console.log(`[Receiver] Resuming transfer for ${metadata.fileName}. Already received ${initialState.receivedBytes} bytes.`);
+                                    } catch (e) {
+                                        // Chunk file doesn't exist, this and all subsequent chunks are invalid.
+                                        console.warn(`[Receiver] Chunk file not found for index ${chunkIndex}. Resuming transfer from before this chunk.`);
+                                        break;
+                                    }
                                 }
-                            } catch (e) {
-                                console.warn(`[Receiver] Could not load existing metadata for ${fileIdToAccept}: ${e}`);
+
+                                // Update state with validated chunks and bytes.
+                                initialState.receivedChunkMap = validatedChunkMap;
+                                initialState.receivedBytes = validatedReceivedBytes;
+                                // The continueIndex is the last *valid* one. Sender should start at index + 1.
+                                continueIndex = lastValidChunkIndex === -1 ? undefined : lastValidChunkIndex;
+
+                                console.log(`[Receiver] Resuming transfer for ${initialState.fileName}. Last valid chunk index: ${continueIndex ?? 'none'}. Validated bytes: ${initialState.receivedBytes}`);
+
+                            } catch (e: any) {
+                                if (e.code === 'ENOENT') {
+                                    // This is a new transfer, metadata file doesn't exist.
+                                    console.log(`[Receiver] No existing metadata found for ${initialState.fileName}. Starting new transfer.`);
+                                    existingTransfer = false;
+                                } else {
+                                    // Some other error reading the file, treat as a new transfer to be safe.
+                                    console.warn(`[Receiver] Could not load or process existing metadata for ${fileIdToAccept}: ${e}`);
+                                    existingTransfer = false;
+                                }
                             }
 
                             // Acknowledge acceptance and start a timeout timer.
-                            sendMetadataAck(fileIdToAccept, true);
+                            sendMetadataAck(fileIdToAccept, true, existingTransfer, undefined, continueIndex);
                             initialState.timeoutTimer = setTimeout(() => {
                                 console.warn(`[Receiver] Transfer ${initialState.fileName} timed out.`);
                                 initialState.onComplete({ fileId: currentFileId, fileName: initialState.fileName, status: "error", message: "Transfer timeout" });
@@ -502,7 +551,7 @@ export function handleIncomingFileTransfer(
                             }, 30000);
                         },
                         (fileIdToReject, reason) => {
-                            sendMetadataAck(fileIdToReject, false, reason);
+                            sendMetadataAck(fileIdToReject, false, false, reason);
                             currentFileId = null;
                         }
                     );

@@ -21,6 +21,8 @@ export interface FileMetadataMessage extends BaseTransferMessage {
 export interface FileMetadataAckMessage extends BaseTransferMessage {
     type: "FILE_METADATA_ACK";
     accepted: boolean;
+    existingTransfer: boolean;
+    continueIndex?: number;
     reason?: string;
 }
 
