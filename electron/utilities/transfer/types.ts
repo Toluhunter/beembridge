@@ -63,6 +63,16 @@ export interface TransferErrorMessage extends BaseTransferMessage {
     details?: unknown; // Optional: more specific error details (e.g., stack trace, error object)
 }
 
+/**
+ * @interface ChunkDebugInfo
+ * @description Holds debugging information for a received chunk. Used during the file reconstruction phase to verify integrity.
+ */
+export interface ChunkDebugInfo {
+    chunkActualSize: number; // Actual size of the chunk received
+    chunkActualChecksum: string; // MD5 checksum of the chunk
+    chunkFileName: string; // Name of the file where the chunk is stored
+}
+
 export interface IncomingTransferState {
     fileId: string;
     fileName: string;
@@ -70,7 +80,7 @@ export interface IncomingTransferState {
     totalChunks: number;
     receivedBytes: number;
     // Map to store received chunk info (path and checksum) for reconstruction
-    receivedChunkMap: { [chunkIndex: number]: { chunkPath: string; chunkChecksum: string } };
+    receivedChunkMap: { [chunkIndex: number]: ChunkDebugInfo };
     chunkStorageDir: string;
     metadataFilePath: string;
     timeoutTimer: NodeJS.Timeout | null;

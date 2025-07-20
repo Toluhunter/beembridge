@@ -26,12 +26,9 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
     const handleOpenFile = async () => {
         if (window.electron) {
             const files = await window.electron.openFile({
-                properties: ['openFile', 'multiSelections'], // Allow multiple file selection
+                properties: ['multiSelections', 'dontAddToRecent'], // Allow multiple file selection
                 filters: [
-                    { name: 'Text Files', extensions: ['txt', 'md'] },
-                    { name: 'Images', extensions: ['jpg', 'png', 'gif'] },
-                    { name: 'Documents', extensions: ['pdf', 'docx', 'xlsx'] },
-                    { name: 'All Files', extensions: ['*'] }
+                    { name: 'All Files', extensions: ['*'] },
                 ]
             });
             if (files) {

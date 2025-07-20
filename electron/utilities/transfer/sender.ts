@@ -2,7 +2,6 @@
 import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid'; // For generating unique file IDs.
 import { createHash } from 'crypto'; // For calculating checksums to ensure data integrity.
 
 // Import custom modules for framing messages and defining transfer-related types.
@@ -92,7 +91,7 @@ export async function initiateFileTransfer(
 
     // --- Transfer State Variables ---
     const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
-    let transferredBytes = 0;
+    // let transferredBytes = 0;
     let currentChunkIndex = 0; // Tracks the next chunk to be sent.
     const outstandingChunks = new Set<number>(); // Stores indices of chunks sent but not yet acknowledged.
     let pausedDueToBackpressure = false; // Flag to pause sending if the socket's buffer is full.
@@ -154,13 +153,13 @@ export async function initiateFileTransfer(
                     await sendFileChunk(buffer, chunkIndexToSend);
 
                     // Update and report progress.
-                    transferredBytes += buffer.length;
+                    // transferredBytes += buffer.length;
                     onProgress({
                         fileId,
                         fileName,
                         totalBytes: fileSize,
-                        transferredBytes: transferredBytes,
-                        percentage: (transferredBytes / fileSize) * 100
+                        transferredBytes: currentChunkIndex * CHUNK_SIZE,
+                        percentage: Math.min(100, Math.round(((currentChunkIndex * CHUNK_SIZE) / fileSize) * 100))
                     });
                     console.log(`[Sender] Sent chunk ${chunkIndexToSend} for file ${fileName}.`);
 
@@ -258,7 +257,7 @@ export async function initiateFileTransfer(
     // --- Metadata Sending and Retry Logic ---
     let metadataRetryCount = 0;
     const MAX_METADATA_RETRIES = 5;
-    const METADATA_RETRY_DELAY_MS = 5000;
+    const METADATA_RETRY_DELAY_MS = 50000;
     let metadataRetryTimer: NodeJS.Timeout | null = null;
     let metadataAckReceived = false;
 
@@ -323,7 +322,7 @@ export async function initiateFileTransfer(
                         const ack = header as FileMetadataAckMessage;
                         if (ack.accepted) {
                             console.log(`[Sender] Receiver accepted metadata for ${fileName}. Starting transfer...`);
-                            if(ack.existingTransfer) {
+                            if (ack.existingTransfer) {
                                 console.log(`[Sender] Resuming existing transfer for ${fileName}.`);
                                 currentChunkIndex = ack.continueIndex || 0;
                             }

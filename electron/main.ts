@@ -87,7 +87,7 @@ function createWindow() {
 
         // Example: Send a reply back to the specific renderer that sent the message
         const sendToRenderer = event.sender.send.bind(event.sender);
-        startDiscovery(sendToRenderer);
+        startDiscovery(sendToRenderer, store.get('userName'), store.get('userId'));
         console.log("Peer discovery initiated from renderer request.");
     });
 
@@ -109,8 +109,8 @@ function createWindow() {
                 initiateFileTransfer(
                     socket,
                     file.path,
-                    targetPeer.instanceId,
-                    targetPeer.peerName,
+                    store.get('userId'),
+                    store.get('userName'),
                     (progress: Progress) => {
                         event.sender.send('transfer-progress-update', progress);
                     },
@@ -239,7 +239,8 @@ function createWindow() {
                     activeConnections.set(peer.instanceId, { peer, socket });
 
                 },
-                peer.instanceId
+                store.get('userName'),
+                store.get('userId')
             );
         }
         catch (error) {

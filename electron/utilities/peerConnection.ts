@@ -201,6 +201,7 @@ export function connectToPeer(
     peer: DiscoveredPeer,
     onStatus: ConnectionStatusListener,
     onConnected: PeerConnectedListener,
+    peerName: string = MY_PEER_NAME,
     myInstanceId: string // Pass local instance ID for client
 ): void {
     if (activeConnections.has(peer.instanceId)) {
@@ -221,7 +222,7 @@ export function connectToPeer(
         const request: ConnectionRequestMessage = {
             type: "CONNECTION_REQUEST",
             senderInstanceId: myInstanceId, // Use local instance ID
-            senderPeerName: MY_PEER_NAME,
+            senderPeerName: peerName,
             senderAppId: APP_ID,
             senderTcpPort: MY_TCP_PORT,
             timestamp: Date.now()
@@ -455,6 +456,7 @@ if (require.main === module) {
 
                             })
                         },
+                        MY_PEER_NAME, // Use the local peer name
                         MY_INSTANCE_ID
                     );
                 } else if (!connectedPeer) {

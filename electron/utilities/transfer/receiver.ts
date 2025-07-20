@@ -25,20 +25,11 @@ import {
     QueueFullMessage,
     QueueFreeMessage,
     TransferErrorMessage,
+    ChunkDebugInfo
 } from './types';
 
 
-/**
- * @interface ChunkDebugInfo
- * @description Holds debugging information for a received chunk. Used during the file reconstruction phase to verify integrity.
- */
-interface ChunkDebugInfo {
-    chunkActualSize: number; // Actual size of the chunk received
-    chunkActualChecksum: string; // MD5 checksum of the chunk
-    chunkFileName: string; // Name of the file where the chunk is stored
-    wasInitiallySent: boolean; // True if this chunk was part of the initial transfer, false if it was a re-request.
-    receivedBytes: number; // Total bytes received so far for this file
-}
+
 
 /**
  * @interface WriteJob
@@ -70,7 +61,6 @@ const activeReceivingTransfers = new Map<string, IncomingTransferState>(); // Ma
 
 // A temporary store for debugging information about each chunk, used during reconstruction.
 // Key: chunkIndex, Value: ChunkDebugInfo
-const chunkDebugList: Map<number, ChunkDebugInfo> = new Map(); // Maps fileId to chunk debug info
 
 // The maximum amount of memory to buffer for a single file's write queue before signaling backpressure. (256MB)
 const MAX_QUEUE_MEMORY_PER_FILE = 256 * 1024 * 1024; // 256 MB
@@ -203,7 +193,7 @@ export function handleIncomingFileTransfer(
             const job = queue.shift();
             if (!job) continue;
 
-            const { chunkIndex, chunkBuffer, chunkFileName, chunkActualSize, checksum, wasInitiallySent } = job;
+            const { chunkIndex, chunkBuffer, chunkFileName, chunkActualSize, checksum } = job;
             const chunkFilePath = path.join(state.chunkStorageDir, chunkFileName);
 
             try {
@@ -219,20 +209,18 @@ export function handleIncomingFileTransfer(
                 // Acknowledge the successful write.
                 sendChunkAck(fileId, chunkIndex, true);
 
-                chunkDebugList.set(chunkIndex, {
-
+                const debugInfo: ChunkDebugInfo = {
                     chunkActualSize: chunkActualSize,
                     chunkActualChecksum: checksum,
                     chunkFileName: chunkFileName,
-                    wasInitiallySent: wasInitiallySent,
-                    receivedBytes: state.receivedBytes
-                });
+                }
+
 
                 // Update progress only if this is a new chunk.
                 if (!state.receivedChunkMap[chunkIndex]) {
                     state.receivedBytes += chunkBuffer.length;
                 }
-                state.receivedChunkMap[chunkIndex] = { chunkPath: chunkFileName, chunkChecksum: checksum };
+                state.receivedChunkMap[chunkIndex] = debugInfo;
                 await fs.promises.writeFile(state.metadataFilePath, JSON.stringify(state.receivedChunkMap, null, 2));
 
                 // Report progress.
@@ -350,7 +338,7 @@ export function handleIncomingFileTransfer(
         }
 
         // --- File Assembly Logic ---
-        console.log(`[Receiver] All chunks for file ${state.fileName} received. Reconstructing file.`);
+        console.log(`\n[Receiver] All chunks for file ${state.fileName} received. Reconstructing file.`);
         const outputFilePath = path.join(downloadDir, `${state.fileName}`); // Final reconstructed file path
 
         try {
@@ -363,14 +351,13 @@ export function handleIncomingFileTransfer(
 
             for (let i = 0; i < state.totalChunks; i++) {
                 const chunkInfo = state.receivedChunkMap[i];
-                if (!chunkInfo || !chunkInfo.chunkPath) {
+                if (!chunkInfo || !chunkInfo.chunkFileName) {
                     throw new Error(`Missing chunk info or path for chunk ${i}`);
                 }
-                const chunkFilePath = path.join(state.chunkStorageDir, chunkInfo.chunkPath);
-                const debugInfo = chunkDebugList.get(i);
+                const chunkFilePath = path.join(state.chunkStorageDir, chunkInfo.chunkFileName);
 
                 // This should not happen, but it's a safeguard.
-                if (!debugInfo) {
+                if (!chunkInfo) {
                     throw new Error(`Missing debug info for chunk ${i}`);
                 }
 
@@ -378,7 +365,7 @@ export function handleIncomingFileTransfer(
                 const checksumChunk = createHash('md5').update(chunkBuffer).digest('hex');
 
                 // Final integrity check before writing the chunk to the final file.
-                if (checksumChunk !== debugInfo.chunkActualChecksum || chunkBuffer.length !== debugInfo.chunkActualSize) {
+                if (checksumChunk !== chunkInfo.chunkActualChecksum || chunkBuffer.length !== chunkInfo.chunkActualSize) {
                     console.log(`Integrity mismatch during reconstruction for chunk ${i}`);
                     sendChunkAck(state.fileId, i, false, "Missing chunk, please retransmit");
                     i--;
@@ -391,7 +378,7 @@ export function handleIncomingFileTransfer(
                     await new Promise<void>(resolve => writeStream.once('drain', resolve));
                 }
             }
-            // await fs.promises.rm(state.chunkStorageDir, { recursive: true, force: true });
+            await fs.promises.rm(state.chunkStorageDir, { recursive: true, force: true });
 
             await new Promise<void>((resolve, reject) => {
                 writeStream.end(() => resolve());
@@ -404,7 +391,7 @@ export function handleIncomingFileTransfer(
                 throw new Error(`Final file checksum mismatch for ${state.fileName}`);
             }
 
-            console.log(`[Receiver] File ${state.fileName} reconstructed successfully to ${outputFilePath}.`);
+            console.log(`\n\n[Receiver] File ${state.fileName} reconstructed successfully to ${outputFilePath}.`);
             state.onComplete({
                 fileId: state.fileId,
                 fileName: state.fileName,
@@ -485,25 +472,25 @@ export function handleIncomingFileTransfer(
 
                                 const metadataContent = await fs.promises.readFile(metadataFilePath, 'utf8');
                                 const savedReceivedChunkMap = JSON.parse(metadataContent);
-                                
+
                                 let lastValidChunkIndex = -1;
                                 let validatedReceivedBytes = 0;
-                                const validatedChunkMap: { [chunkIndex: number]: { chunkPath: string; chunkChecksum: string } } = {};
+                                const validatedChunkMap: { [chunkIndex: number]: ChunkDebugInfo } = {};
 
                                 const sortedChunkIndices = Object.keys(savedReceivedChunkMap).map(Number).sort((a, b) => a - b);
 
                                 for (const chunkIndex of sortedChunkIndices) {
-                                    const chunkInfo = savedReceivedChunkMap[chunkIndex];
-                                    if (!chunkInfo || !chunkInfo.chunkPath || !chunkInfo.chunkChecksum) continue;
+                                    const chunkInfo: ChunkDebugInfo = savedReceivedChunkMap[chunkIndex];
+                                    if (!chunkInfo || !chunkInfo.chunkFileName || !chunkInfo.chunkActualChecksum) continue;
 
-                                    const chunkFilePath = path.join(initialState.chunkStorageDir, chunkInfo.chunkPath);
-                                    
+                                    const chunkFilePath = path.join(initialState.chunkStorageDir, chunkInfo.chunkFileName);
+
                                     try {
                                         // Check if chunk file exists before trying to hash it.
                                         await fs.promises.stat(chunkFilePath);
                                         const calculatedHash = await calculateFileHash(chunkFilePath);
 
-                                        if (calculatedHash === chunkInfo.chunkChecksum) {
+                                        if (calculatedHash === chunkInfo.chunkActualChecksum) {
                                             // This chunk is valid, keep it.
                                             lastValidChunkIndex = chunkIndex;
                                             validatedChunkMap[chunkIndex] = chunkInfo;
@@ -512,10 +499,13 @@ export function handleIncomingFileTransfer(
                                         } else {
                                             // Hash mismatch, this and all subsequent chunks are invalid.
                                             console.warn(`[Receiver] Checksum mismatch for chunk ${chunkIndex}. Resuming transfer from before this chunk.`);
-                                            break; 
+                                            break;
                                         }
-                                    } catch (e) {
+                                    } catch (e: unknown) {
                                         // Chunk file doesn't exist, this and all subsequent chunks are invalid.
+                                        if (e instanceof Error) {
+                                            console.warn(`[Receiver] Error accessing chunk file for index ${chunkIndex}: ${e.message}. Resuming transfer from before this chunk.`);
+                                        }
                                         console.warn(`[Receiver] Chunk file not found for index ${chunkIndex}. Resuming transfer from before this chunk.`);
                                         break;
                                     }
@@ -529,16 +519,18 @@ export function handleIncomingFileTransfer(
 
                                 console.log(`[Receiver] Resuming transfer for ${initialState.fileName}. Last valid chunk index: ${continueIndex ?? 'none'}. Validated bytes: ${initialState.receivedBytes}`);
 
-                            } catch (e: any) {
-                                if (e.code === 'ENOENT') {
-                                    // This is a new transfer, metadata file doesn't exist.
-                                    console.log(`[Receiver] No existing metadata found for ${initialState.fileName}. Starting new transfer.`);
-                                    existingTransfer = false;
-                                } else {
-                                    // Some other error reading the file, treat as a new transfer to be safe.
-                                    console.warn(`[Receiver] Could not load or process existing metadata for ${fileIdToAccept}: ${e}`);
-                                    existingTransfer = false;
-                                }
+                            } catch (e: unknown) {
+                                if (e instanceof Error)
+                                    console.error(`[Receiver] Error reading metadata for ${initialState.fileName}: ${e.message}`);
+                                existingTransfer = false;
+                                // if (e.code === 'ENOENT') {
+                                //     // This is a new transfer, metadata file doesn't exist.
+                                //     console.log(`[Receiver] No existing metadata found for ${initialState.fileName}. Starting new transfer.`);
+                                //     existingTransfer = false;
+                                // } else {
+                                //     // Some other error reading the file, treat as a new transfer to be safe.
+                                //     console.warn(`[Receiver] Could not load or process existing metadata for ${fileIdToAccept}: ${e}`);
+                                // }
                             }
 
                             // Acknowledge acceptance and start a timeout timer.

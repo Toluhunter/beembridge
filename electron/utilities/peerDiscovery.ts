@@ -38,7 +38,7 @@ let currentPeerName: string = 'Unknown Device';
 
 // --- Your App's Unique Identifiers ---
 const APP_ID = "MyAwesomeFileTransferApp";
-const INSTANCE_ID = Math.random().toString(36).substring(2, 15);
+let instanceId = `UnkonwnInstance`; // Generate a random instance ID
 
 function getRandomPort(min = 49152, max = 65535, excludedPorts: number[] = []) {
     let port: number;
@@ -123,7 +123,7 @@ function sendPeerUpdate(): void {
 
 // --- Discovery Logic ---
 
-export function startDiscovery(ipcSender?: PeerUpdateSender, peerName?: string): void {
+export function startDiscovery(ipcSender?: PeerUpdateSender, peerName?: string, peerId?: string): void {
     if (discoverySocket) {
         console.warn("[Discovery] Discovery already running.");
         return;
@@ -133,6 +133,7 @@ export function startDiscovery(ipcSender?: PeerUpdateSender, peerName?: string):
         ipcPeerUpdateSender = ipcSender;
     }
     currentPeerName = peerName || hostname() || 'Unknown Device';
+    instanceId = peerId || `${APP_ID}_${Math.random().toString(36).substring(2, 15)}`; // Generate a new instance ID if not provided
 
     discoverySocket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
 
@@ -164,7 +165,7 @@ export function startDiscovery(ipcSender?: PeerUpdateSender, peerName?: string):
             for (const data of messages) {
                 const message: DiscoveryMessage = data.header as DiscoveryMessage;
 
-                if (message.instanceId === INSTANCE_ID || message.appId !== APP_ID) {
+                if (message.instanceId === instanceId || message.appId !== APP_ID) {
                     return; // Ignore messages from myself or other apps
                 }
 
@@ -228,7 +229,7 @@ function startBroadcasting(): void {
     broadcastTimer = setInterval(() => {
         const message: DiscoveryMessage = {
             appId: APP_ID,
-            instanceId: INSTANCE_ID,
+            instanceId: instanceId,
             peerName: currentPeerName,
             tcpPort: MY_TCP_PORT,
             timestamp: Date.now()
