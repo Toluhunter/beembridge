@@ -3,25 +3,26 @@ import { DiscoveredPeer } from "@/components/views/peers";
 
 
 // Define an interface for a selected file to include properties we care about
-export interface SelectedFile {
+export interface SelectedItem {
     path: string;
     name: string;
     size: number;
-    type: string;
+    isDirectory: boolean;
     lastModified: string;
 }
 
 interface ExplorerViewProps {
-    selectedFiles: SelectedFile[];
-    onAddFiles: (files: SelectedFile[]) => void;
-    onRemoveFile: (fileToRemove: SelectedFile) => void;
+    selectedFiles: SelectedItem[];
+    onAddFiles: (files: SelectedItem[]) => void;
+    onRemoveFile: (fileToRemove: SelectedItem) => void;
     connectedPeers: DiscoveredPeer[]; // Added connectedPeers prop
-    onSendFilesToPeers: (files: SelectedFile[], targetPeers: DiscoveredPeer[]) => void; // New prop for sending files
+    onSendFilesToPeers: (files: SelectedItem[], targetPeers: DiscoveredPeer[]) => void; // New prop for sending files
 }
 
 export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAddFiles, onRemoveFile, connectedPeers, onSendFilesToPeers }) => {
     const [showSendModal, setShowSendModal] = useState(false);
     const [selectedPeerForSending, setSelectedPeerForSending] = useState<DiscoveredPeer | null>(null);
+    const [showAddOptions, setShowAddOptions] = useState(false); // NEW STATE
 
     const handleOpenFile = async () => {
         if (window.electron) {
@@ -80,6 +81,28 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
         }
     };
 
+    // NEW: Handle Add Directory (no functionality yet)
+    const handleAddDirectoryClick = async () => {
+        if (window.electron) {
+            const files = await window.electron.openFile({
+                properties: ['openDirectory', 'multiSelections', 'dontAddToRecent'], // Allow multiple file selection
+                filters: [
+                    { name: 'All Files', extensions: ['*'] },
+                ]
+            });
+            if (files) {
+                onAddFiles(files);
+            } else {
+                onAddFiles([]);
+                console.log('File selection canceled.');
+            }
+        } else {
+            console.warn('electronAPI not available. Are you running in Electron?');
+            // Fallback for web environment if needed
+            alert('This feature is only available in the Electron desktop application.');
+        }
+        // Placeholder for future directory selection logic
+    };
 
     return (
         <div className="relative flex flex-col h-full bg-gray-800 rounded-2xl border border-gray-700 p-8 shadow-lg">
@@ -109,11 +132,12 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
                             >
                                 <div className="flex items-center flex-grow min-w-0">
                                     <span className="mr-3 text-blue-400 text-2xl">
-                                        {file.type.startsWith('image/') ? '�️' :
-                                            file.type.startsWith('video/') ? '🎥' :
-                                                file.type.startsWith('audio/') ? '🎵' :
-                                                    file.type.includes('pdf') ? '📄' :
-                                                        '📁'}
+                                        {
+                                            // file.type.startsWith('image/') ? '�️' :
+                                            // file.type.startsWith('video/') ? '🎥' :
+                                            //     file.type.startsWith('audio/') ? '🎵' :
+                                            //         file.type.includes('pdf') ? '📄' :
+                                            '📁'}
                                     </span>
                                     <span className="text-white font-medium truncate flex-grow">
                                         {file.name}
@@ -149,14 +173,39 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
                 Send Selected Files ({selectedFiles.length})
             </button>
 
-            {/* Plus SVG Circle Icon for adding files */}
-            <button
-                onClick={handleAddFilesClick}
-                className="absolute bottom-6 right-6 w-16 h-16 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-white text-5xl font-light shadow-lg transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
-                aria-label="Add Files"
-            >
-                +
-            </button>
+            {/* Plus SVG Circle Icon for adding files, now with animated options */}
+            <div className="absolute bottom-6 right-6 flex flex-col items-end z-20">
+                {/* Animated Buttons */}
+                <div
+                    className={`flex flex-col items-end mb-2 transition-all duration-300 ${showAddOptions ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-4 pointer-events-none"
+                        }`}
+                >
+                    <button
+                        onClick={handleAddFilesClick}
+                        className="mb-2 w-48 py-2 px-4 bg-blue-500 hover:bg-blue-600 rounded-lg text-white font-semibold shadow-lg transition-all duration-200"
+                        style={{ transitionDelay: showAddOptions ? "50ms" : "0ms" }}
+                    >
+                        Add Files
+                    </button>
+                    <button
+                        onClick={handleAddDirectoryClick}
+                        className="w-48 py-2 px-4 bg-green-500 hover:bg-green-600 rounded-lg text-white font-semibold shadow-lg transition-all duration-200"
+                        style={{ transitionDelay: showAddOptions ? "100ms" : "0ms" }}
+                    >
+                        Add Directory
+                    </button>
+                </div>
+                {/* Main + Button */}
+                <button
+                    onClick={() => setShowAddOptions((prev) => !prev)}
+                    className={`w-16 h-16 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-white text-5xl font-light shadow-lg transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 ${showAddOptions ? "rotate-45" : ""
+                        }`}
+                    aria-label="Add Files"
+                    style={{ transition: "transform 0.2s" }}
+                >
+                    +
+                </button>
+            </div>
 
             {/* Send Modal */}
             {showSendModal && (

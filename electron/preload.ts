@@ -5,11 +5,11 @@ import { DiscoveredPeer } from './utilities/peerDiscovery';
 // Type definitions for the functions we'll expose to the renderer
 // This is good practice for TypeScript in the renderer process
 
-interface SelectedFile {
+interface SelectedItem {
     path: string;
     name: string;
     size: number;
-    type: string;
+    isDirectory: boolean;
     lastModified: string;
 }
 
@@ -28,7 +28,7 @@ declare global {
             startPeerDiscovery: () => void;
             startTcpServer: () => void;
             onPeerUpdate: (callback: (event: Electron.IpcRendererEvent, peers: DiscoveredPeer[]) => void) => () => void;
-            sendFilesToPeers: (files: SelectedFile[], peers: DiscoveredPeer[]) => void;
+            sendFilesToPeers: (files: SelectedItem[], peers: DiscoveredPeer[]) => void;
             onConnectionResponse: (callback: (event: Electron.IpcRendererEvent, peer: DiscoveredPeer, status: string, reason?: string) => void) => () => void;
             connectToPeer: (peer: DiscoveredPeer) => void;
             getAppVersion: () => Promise<string>;
@@ -47,7 +47,7 @@ declare global {
                 ) => void
             ) => () => void;
             respondToPeerConnectionRequest: (requestId: string, accepted: boolean, reason?: string) => void;
-            openFile: (options?: Electron.OpenDialogOptions) => Promise<SelectedFile[] | null>;
+            openFile: (options?: Electron.OpenDialogOptions) => Promise<SelectedItem[] | null>;
         };
     }
 };
@@ -66,7 +66,7 @@ contextBridge.exposeInMainWorld('electron', {
     startTcpServer: () => {
         ipcRenderer.send('start-tcp-server');
     },
-    openFile: async (options = {}): Promise<SelectedFile[] | null> => {
+    openFile: async (options = {}): Promise<SelectedItem[] | null> => {
         try {
             return await ipcRenderer.invoke('dialog:openFile', options);
         } catch (error) {
@@ -75,7 +75,7 @@ contextBridge.exposeInMainWorld('electron', {
         }
     },
 
-    sendFilesToPeers: (files: SelectedFile[], peers: DiscoveredPeer[]) => {
+    sendFilesToPeers: (files: SelectedItem[], peers: DiscoveredPeer[]) => {
         ipcRenderer.send('send-files-to-peers', files, peers);
     },
 

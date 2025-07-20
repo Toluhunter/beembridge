@@ -38,11 +38,11 @@ const store = new Store<{ userName: string, userId: string, storagePath: string 
     },
 });
 
-interface SelectedFile {
+interface SelectedItem {
     path: string;
     name: string;
     size: number;
-    type: string;
+    isDirectory: boolean;
     lastModified: string;
 }
 
@@ -91,7 +91,7 @@ function createWindow() {
         console.log("Peer discovery initiated from renderer request.");
     });
 
-    ipcMain.on('send-files-to-peers', (event, files: SelectedFile[], peers: DiscoveredPeer[]) => {
+    ipcMain.on('send-files-to-peers', (event, files: SelectedItem[], peers: DiscoveredPeer[]) => {
         console.log("Sending files:", files.map(f => f.name));
         const targetPeer: DiscoveredPeer = peers[0]; // For now, just send to the first peer
         const socket = activeConnections.get(targetPeer.instanceId)?.socket as net.Socket;
@@ -182,7 +182,7 @@ function createWindow() {
             properties: ['openFile'], // Default to opening files
             filters: [],
         };
-        const selecteFiles: SelectedFile[] = [];
+        const selectedItems: SelectedItem[] = [];
         const mergedOptions = { ...defaultOptions, ...options };
 
         const { canceled, filePaths } = await dialog.showOpenDialog(mergedOptions);
@@ -193,11 +193,12 @@ function createWindow() {
             try {
                 console.log(filepath)
                 const stats = await fs.promises.stat(filepath);
-                selecteFiles.push({
+
+                selectedItems.push({
                     path: filepath,
                     name: path.basename(filepath),
                     size: stats.size, // Size in bytes
-                    type: stats.isDirectory() ? 'directory' : 'file', // Simple type check
+                    isDirectory: stats.isDirectory(), // Simple type check
                     lastModified: stats.mtime.toISOString(), // Last modified date
                 });
             } catch (error) {
@@ -205,7 +206,7 @@ function createWindow() {
                 return null; // Return null for files that failed to read info
             }
         }
-        return selecteFiles;
+        return selectedItems;
 
     });
 
