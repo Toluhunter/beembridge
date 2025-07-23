@@ -20,6 +20,7 @@ export type Progress = {
     transferredBytes: number;
     percentage: number;
     speedKbps?: number; // Optional: speed calculation
+    parentId?: string;
 }
 
 declare global {

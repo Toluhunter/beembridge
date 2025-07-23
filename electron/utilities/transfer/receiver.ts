@@ -339,7 +339,9 @@ export function handleIncomingFileTransfer(
 
         // --- File Assembly Logic ---
         console.log(`\n[Receiver] All chunks for file ${state.fileName} received. Reconstructing file.`);
-        const outputFilePath = path.join(downloadDir, `${state.fileName}`); // Final reconstructed file path
+        const targetPath = path.join(downloadDir, state.prefix || '');
+        await fs.promises.mkdir(targetPath, { recursive: true });
+        const outputFilePath = path.join(targetPath, state.fileName); // Final reconstructed file path
 
         try {
             // Create a write stream for the final file.
@@ -457,7 +459,9 @@ export function handleIncomingFileTransfer(
                                 onProgress,
                                 onComplete,
                                 onError,
-                                currentFrameParser: frameParser
+                                currentFrameParser: frameParser,
+                                parentId: metadata.parentId,
+                                prefix: metadata.prefix
                             };
                             activeReceivingTransfers.set(fileIdToAccept, initialState);
 

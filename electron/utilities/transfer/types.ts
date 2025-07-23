@@ -12,6 +12,9 @@ export interface BaseTransferMessage {
 
 export interface FileMetadataMessage extends BaseTransferMessage {
     type: "FILE_METADATA";
+    prefix?: string;
+    parentId?: string;
+    totalItems?: number; // Optional: used for directory transfers
     fileName: string;
     fileSize: number;
     totalChunks: number;
@@ -89,6 +92,8 @@ export interface IncomingTransferState {
     onComplete: TransferCompleteCallback;
     onError: (fileId: string, message: string) => void;
     currentFrameParser: FrameParser;
+    parentId?: string; // Optional: parent transfer ID for nested transfers
+    prefix?: string; // Optional: prefix for file paths, used in directory transfers
 }
 
 export type TransferMessage =
@@ -107,6 +112,7 @@ export type Progress = {
     transferredBytes: number;
     percentage: number;
     speedKbps?: number; // Optional: speed calculation
+    parentId?: string;
 }
 // --- Progress/Status Callbacks ---
 export type TransferProgressCallback = (progress: Progress) => void;

@@ -11,7 +11,7 @@ import Store from 'electron-store'
 import { v4 as uuidv4 } from 'uuid'; // npm install uuid
 import * as fs from 'fs';
 import { Progress, Result } from './utilities/transfer/types';
-import { initiateFileTransfer } from './utilities/transfer/sender';
+import { initiateFileTransfer, calculateFileHash } from './utilities/transfer/sender';
 import { handleIncomingFileTransfer } from './utilities/transfer/receiver';
 dotenv.config();
 
@@ -90,25 +90,75 @@ function createWindow() {
         startDiscovery(sendToRenderer, store.get('userName'), store.get('userId'));
         console.log("Peer discovery initiated from renderer request.");
     });
+    interface TransferFilePrep {
+        name: string;
+        fileId: string;
+        filePath: string;
+        parentId?: string;
+        prefix?: string;
+    }
 
-    ipcMain.on('send-files-to-peers', (event, files: SelectedItem[], peers: DiscoveredPeer[]) => {
+    ipcMain.on('send-files-to-peers', async (event, files: SelectedItem[], peers: DiscoveredPeer[]) => {
         console.log("Sending files:", files.map(f => f.name));
+        const fileQueue: TransferFilePrep[] = [];
+
         const targetPeer: DiscoveredPeer = peers[0]; // For now, just send to the first peer
         const socket = activeConnections.get(targetPeer.instanceId)?.socket as net.Socket;
 
+        // Helper to recursively read directories and populate fileQueue
+        async function readDirectoryRecursive(dirPath: string, parentId: string, rootDir: string) {
+            const dirents = await fs.promises.readdir(dirPath, { withFileTypes: true });
+            for (const dirent of dirents) {
+                const filePath = path.join(dirPath, dirent.name);
+                if (dirent.isDirectory()) {
+                    await readDirectoryRecursive(filePath, parentId, rootDir);
+                } else {
+                    const fileId = await calculateFileHash(filePath);
+                    const prefix = path.join(path.basename(rootDir), path.relative(rootDir, path.dirname(filePath)));
+
+                    fileQueue.push({
+                        name: dirent.name,
+                        fileId,
+                        filePath,
+                        parentId,
+                        prefix: prefix === '' ? '' : prefix + path.sep
+                    });
+                }
+            }
+        }
+
+        // Sequentially process files
+        for (const file of files) {
+            console.log(`Processing file: ${file.name}, Path: ${file.path}, Is Directory: ${file.isDirectory}`);
+            if (file.isDirectory) {
+                const parentId = uuidv4();
+                await readDirectoryRecursive(file.path, parentId, file.path);
+            } else {
+                const fileId = await calculateFileHash(file.path);
+                fileQueue.push({
+                    name: file.name,
+                    fileId,
+                    filePath: file.path,
+                    prefix: '', // No prefix for single files
+                });
+                console.log(`File processed: ${file.name}, ID: ${fileId}`);
+            }
+        }
+
         // Queue and concurrency control
-        const fileQueue = [...files];
         let activeTransfers = 0;
         const MAX_CONCURRENT_TRANSFERS = 2; // Limit concurrent transfers
 
         async function sendNext() {
+            console.log(`Initiating transfer for file`);
             while (activeTransfers < MAX_CONCURRENT_TRANSFERS && fileQueue.length > 0) {
                 const file = fileQueue.shift();
                 if (!file) break;
                 activeTransfers++;
                 initiateFileTransfer(
                     socket,
-                    file.path,
+                    file.fileId,
+                    file.filePath,
                     store.get('userId'),
                     store.get('userName'),
                     (progress: Progress) => {
@@ -121,12 +171,13 @@ function createWindow() {
                     },
                     (fileId: string, message: string) => {
                         activeTransfers--;
-                        console.error(`File transfer error for ${file.name}: ${message}`);
+                        console.error(`File transfer error for ${file.fileId}: ${message}`);
                         sendNext(); // Trigger next file transfer if any
-                    }
+                    },
+                    file.parentId,
+                    file.prefix // Pass the prefix if needed by your transfer logic
                 );
                 await new Promise(resolve => setTimeout(resolve, 1500)); // Small delay to avoid overwhelming the socket
-
             }
         }
 

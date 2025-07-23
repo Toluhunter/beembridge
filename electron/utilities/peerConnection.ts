@@ -7,7 +7,7 @@ import { hostname } from 'os';
 import * as readline from 'readline';
 import * as path from 'path';
 import { buildFramedMessage, FrameParser } from './framingProtocol';
-import { initiateFileTransfer } from './transfer/sender';
+import { initiateFileTransfer, calculateFileHash } from './transfer/sender';
 import { handleIncomingFileTransfer } from './transfer/receiver';
 
 // --- Configuration ---
@@ -431,9 +431,11 @@ if (require.main === module) {
                             console.log(`[SENDER] Connection ESTABLISHED with ${peer.peerName}. Initiating file transfer.`);
                             // Connection is established, now initiate file transfer
 
-                            TEST_FILE_PATHS.forEach((filePath) => {
+                            TEST_FILE_PATHS.forEach(async (filePath) => {
+                                const fileId = await calculateFileHash(filePath);
                                 initiateFileTransfer(
                                     socket,
+                                    fileId,
                                     filePath,
                                     MY_INSTANCE_ID,
                                     MY_PEER_NAME,
