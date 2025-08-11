@@ -113,7 +113,9 @@ function createWindow() {
                 if (dirent.isDirectory()) {
                     await readDirectoryRecursive(filePath, parentId, rootDir);
                 } else {
-                    const fileId = await calculateFileHash(filePath);
+                    const fileId = await calculateFileHash(filePath, (percentage) => {
+                        event.sender.send('hashing-progress', { filePath, percentage });
+                    });
                     const prefix = path.join(path.basename(rootDir), path.relative(rootDir, path.dirname(filePath)));
 
                     fileQueue.push({
@@ -134,7 +136,9 @@ function createWindow() {
                 const parentId = uuidv4();
                 await readDirectoryRecursive(file.path, parentId, file.path);
             } else {
-                const fileId = await calculateFileHash(file.path);
+                const fileId = await calculateFileHash(file.path, (percentage) => {
+                    event.sender.send('hashing-progress', { filePath: file.path, percentage });
+                });
                 fileQueue.push({
                     name: file.name,
                     fileId,
@@ -209,6 +213,9 @@ function createWindow() {
                     },
                     (fileId: string, message: string) => {
                         console.error(`File transfer error for ${fileId}: ${message}`);
+                    },
+                    (progress: { filePath: string, percentage: number }) => {
+                        event.sender.send('hashing-progress', progress);
                     }
                     ,
                     (
@@ -217,7 +224,6 @@ function createWindow() {
                         fileSize: number,
                         senderPeerName: string,
                         accept: (fileId: string) => void,
-                        reject: (fileId: string, reason: string) => void,
                     ) => {
                         console.log(`[RECEIVER] File received from ${senderPeerName}: ${fileName}`);
                         accept(fileId); // Automatically accept the file transfer

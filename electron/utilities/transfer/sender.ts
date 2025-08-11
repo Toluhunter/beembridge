@@ -73,13 +73,18 @@ export function calculateDirectoryHash(directoryPath: string): Promise<Directory
     });
 }
 
-export function calculateFileHash(filePath: string): Promise<string> {
+export function calculateFileHash(filePath: string, onProgress: (percentage: number) => void): Promise<string> {
     return new Promise((resolve, reject) => {
         const hash = createHash('md5');
         const stream = fs.createReadStream(filePath);
+        let totalBytes = 0;
+        const fileSize = fs.statSync(filePath).size;
 
         stream.on('data', (chunk) => {
             hash.update(chunk);
+            totalBytes += chunk.length;
+            const percentage = Math.round((totalBytes / fileSize) * 100);
+            onProgress(percentage);
         });
 
         stream.on('end', () => {

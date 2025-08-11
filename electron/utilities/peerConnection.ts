@@ -380,18 +380,15 @@ if (require.main === module) {
                             // Cleanup UI/state in a real app
                         },
                         (fileId, message) => {
-                            console.error(`\n[RECEIVER] Transfer error for ${fileId}: ${message}`);
+                            console.error(`
+[RECEIVER] Transfer error for ${fileId}: ${message}`);
                         },
-                        (fileId, fileName, fileSize, senderPeerName, acceptFileCb, rejectFileCb) => {
-                            // This is the prompt for the receiver to accept/reject the file itself
+                        (progress) => {
+                            process.stdout.write(`[RECEIVER] Hashing ${progress.filePath}: ${progress.percentage.toFixed(2)}%`);
+                        },
+                        (fileId, fileName, fileSize, senderPeerName, acceptFileCb) => {
                             acceptFileCb(fileId);
-                            // rl.question(`\nReceive file '${fileName}' (${(fileSize / (1024 * 1024)).toFixed(2)}MB) from ${senderPeerName}? (y/n) `, (response) => {
-                            //     if (response.toLowerCase().trim() === 'y') {
-                            //         acceptFileCb(fileId);
-                            //     } else {
-                            //         rejectFileCb(fileId, "User denied file transfer.");
-                            //     }
-                            // });
+
                         }
                     );
                 },
@@ -432,7 +429,9 @@ if (require.main === module) {
                             // Connection is established, now initiate file transfer
 
                             TEST_FILE_PATHS.forEach(async (filePath) => {
-                                const fileId = await calculateFileHash(filePath);
+                                const fileId = await calculateFileHash(filePath, (percentage) => {
+                                    process.stdout.write(`\r[SENDER] Hashing ${path.basename(filePath)}: ${percentage.toFixed(2)}%`);
+                                });
                                 initiateFileTransfer(
                                     socket,
                                     fileId,

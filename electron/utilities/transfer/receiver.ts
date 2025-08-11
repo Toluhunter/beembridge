@@ -70,12 +70,21 @@ const MAX_QUEUE_MEMORY_PER_FILE = 256 * 1024 * 1024; // 256 MB
  * @param filePath The path to the file.
  * @returns A promise that resolves with the hex-encoded MD5 hash of the file.
  */
-export function calculateFileHash(filePath: string): Promise<string> {
+export function calculateFileHash(filePath: string, onProgress?: (percentage: number) => void): Promise<string> {
     return new Promise((resolve, reject) => {
         const hash = createHash('md5');
         const stream = fs.createReadStream(filePath);
+        const fileSize = fs.statSync(filePath).size;
+        let bytesRead = 0;
 
-        stream.on('data', (chunk) => hash.update(chunk));
+        stream.on('data', (chunk) => {
+            hash.update(chunk)
+            if (onProgress) {
+                bytesRead += chunk.length;
+                const percentage = Math.round((bytesRead / fileSize) * 100);
+                onProgress(percentage);
+            }
+        });
         stream.on('end', () => {
             const digest = hash.digest('hex');
             resolve(digest);
@@ -108,13 +117,13 @@ export function handleIncomingFileTransfer(
     onProgress: TransferProgressCallback,
     onComplete: TransferCompleteCallback,
     onError: (fileId: string, message: string) => void,
+    onHashingProgress: (progress: { filePath: string, percentage: number }) => void, // New callback for hashing
     requestAcceptance: (
         fileId: string,
         fileName: string,
         fileSize: number,
         senderPeerName: string,
         acceptCallback: (fileId: string) => void,
-        rejectCallback: (fileId: string, reason: string) => void
     ) => void
 ): void {
     const frameParser = new FrameParser();
@@ -388,7 +397,9 @@ export function handleIncomingFileTransfer(
             });
 
             // Verify the checksum of the fully reconstructed file.
-            const fileChecksum = await calculateFileHash(outputFilePath);
+            const fileChecksum = await calculateFileHash(outputFilePath, (percentage) => {
+                onHashingProgress({ filePath: outputFilePath, percentage });
+            });
             if (fileChecksum !== state.fileId) {
                 throw new Error(`Final file checksum mismatch for ${state.fileName}`);
             }
@@ -492,7 +503,9 @@ export function handleIncomingFileTransfer(
                                     try {
                                         // Check if chunk file exists before trying to hash it.
                                         await fs.promises.stat(chunkFilePath);
-                                        const calculatedHash = await calculateFileHash(chunkFilePath);
+                                        const calculatedHash = await calculateFileHash(chunkFilePath, (percentage) => {
+                                            onHashingProgress({ filePath: chunkFilePath, percentage });
+                                        });
 
                                         if (calculatedHash === chunkInfo.chunkActualChecksum) {
                                             // This chunk is valid, keep it.
@@ -546,10 +559,6 @@ export function handleIncomingFileTransfer(
                                 currentFileId = null;
                             }, 30000);
                         },
-                        (fileIdToReject, reason) => {
-                            sendMetadataAck(fileIdToReject, false, false, reason);
-                            currentFileId = null;
-                        }
                     );
                 } else if (header.type === "FILE_CHUNK") {
                     // --- Handle Incoming File Chunk ---

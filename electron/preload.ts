@@ -39,6 +39,7 @@ declare global {
             getStoragePath: () => Promise<string>;
             setStoragePath: () => Promise<boolean | string>;
             onProgressUpdate: (callback: (event: Electron.IpcRendererEvent, progress: Progress) => void) => () => void;
+            onHashingProgress: (callback: (event: Electron.IpcRendererEvent, progress: { filePath: string, percentage: number }) => void) => () => void; // New callback for hashing
             generateNewUserId: () => Promise<string>;
             onPeerConnectionRequest: (
                 callback: (
@@ -93,6 +94,14 @@ contextBridge.exposeInMainWorld('electron', {
 
         return () => {
             ipcRenderer.removeListener('progress-update', callback);
+        }
+    },
+
+    onHashingProgress: (callback: (event: Electron.IpcRendererEvent, progress: { filePath: string, percentage: number }) => void): () => void => {
+        ipcRenderer.on('hashing-progress', callback);
+
+        return () => {
+            ipcRenderer.removeListener('hashing-progress', callback);
         }
     },
 

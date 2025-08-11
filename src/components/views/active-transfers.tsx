@@ -17,9 +17,10 @@ export type Progress = {
 
 interface ActiveTransferViewProps {
     activeTransfers: ActiveTransferDisplayItem[],
+    hashingProgress: {[key: string]: number}
 }
 
-export const ActiveTransferView: React.FC<ActiveTransferViewProps> = ({ activeTransfers }) => {
+export const ActiveTransferView: React.FC<ActiveTransferViewProps> = ({ activeTransfers, hashingProgress }) => {
     // State to manage the expanded/collapsed state of parent groups
     const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
 
@@ -90,12 +91,43 @@ export const ActiveTransferView: React.FC<ActiveTransferViewProps> = ({ activeTr
         <div className="p-6 bg-gray-800 rounded-xl shadow-lg h-full flex flex-col font-inter">
             <h1 className="text-3xl font-bold text-white mb-6">Active Transfers</h1>
 
-            {activeTransfers.length === 0 ? (
+            {activeTransfers.length === 0 && Object.keys(hashingProgress).length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
                     <p className="text-gray-400 text-lg">No active transfers at the moment.</p>
                 </div>
             ) : (
                 <div className="flex-grow overflow-y-auto custom-scrollbar pr-4">
+                    {Object.entries(hashingProgress).length > 0 && (
+                        <div className="mb-6">
+                            <h2 className="text-2xl font-bold text-white mb-4">Preparing Files...</h2>
+                            <div className="grid grid-cols-1 gap-6">
+                                {Object.entries(hashingProgress).map(([filePath, percentage]) => (
+                                    <div key={filePath} className="bg-gray-700 p-5 rounded-xl shadow-md border border-gray-600">
+                                        <div className="flex items-start mb-3">
+                                            <span className="text-3xl mr-3 flex-shrink-0">🧮</span>
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="text-xl font-semibold text-white whitespace-normal break-words">
+                                                    {filePath.split('\\').pop() || filePath}
+                                                </h3>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center mb-4">
+                                            <p className="text-sm font-medium text-purple-400 capitalize">
+                                                Status: Hashing
+                                            </p>
+                                            <span className="ml-2 text-purple-400 font-bold">{percentage}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-600 rounded-full h-2.5 mb-3">
+                                            <div
+                                                className="bg-purple-500 h-2.5 rounded-full transition-all duration-500 ease-out"
+                                                style={{ width: `${percentage}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <div className="grid grid-cols-1 gap-6">
                         {/* Render Grouped Transfers */}
                         {Object.entries(groupedTransfers).map(([parentId, children]) => {

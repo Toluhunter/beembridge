@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react'; // Import useRef for file input
 import { PeerView } from '@/components/views/peers';
 import { DiscoveredPeer } from '@/components/views/peers';
-import { ExplorerView, SelectedFile } from '@/components/views/explorer';
+import { ExplorerView, SelectedItem as SelectedFile } from '@/components/views/explorer';
 import { TransferHistoryView } from '@/components/views/transfer-history';
 import { ActiveTransferView, ActiveTransferDisplayItem } from '@/components/views/active-transfers';
 import { SettingsView } from '@/components/views/settings';
@@ -35,6 +35,7 @@ const App = () => {
   const [userId, setUserId] = useState("BB_USER_1234567890"); // Made userId mutable
   const [storagePath, setStoragePath] = useState<string>("");
   const [activeTransfers, setActiveTransfers] = useState<ActiveTransferDisplayItem[]>([]);
+  const [hashingProgress, setHashingProgress] = useState<{ [key: string]: number }>({});
 
   const handleAddSelectedFiles = (newFiles: SelectedFile[]) => {
     const uniqueNewFiles = newFiles.filter(newFile =>
@@ -171,10 +172,22 @@ const App = () => {
           }
         });
       });
+      const unsubscribeHashing = window.electron.onHashingProgress((_event, progress) => {
+        if (progress.percentage === 100) {
+          setHashingProgress(prev => {
+            const newProgress = { ...prev };
+            delete newProgress[progress.filePath];
+            return newProgress;
+          });
+        } else {
+          setHashingProgress(prev => ({ ...prev, [progress.filePath]: progress.percentage }));
+        }
+      });
 
       // Stop listening for progress updates when the component unmounts
       return () => {
         unsubscribe();
+        unsubscribeHashing();
       };
 
       // Start peer discovery when the app loads
@@ -276,6 +289,7 @@ const App = () => {
         {activeView === 'active-transfers' && ( // New view for Active Transfers
           <ActiveTransferView
             activeTransfers={activeTransfers}
+            hashingProgress={hashingProgress}
           />
         )}
 
