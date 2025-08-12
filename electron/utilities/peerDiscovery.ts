@@ -1,6 +1,7 @@
 // src/peerDiscovery.ts
 
 import * as dgram from 'dgram';
+import * as net from 'net';
 import { networkInterfaces, hostname } from 'os';
 import { buildFramedMessage, FrameParser } from './framingProtocol';
 
@@ -40,12 +41,34 @@ let currentPeerName: string = 'Unknown Device';
 const APP_ID = "MyAwesomeFileTransferApp";
 let instanceId = `UnkonwnInstance`; // Generate a random instance ID
 
-function getRandomPort(min = 49152, max = 65535, excludedPorts: number[] = []) {
-    let port: number;
-    do {
-        port = Math.floor(Math.random() * (max - min + 1)) + min;
-    } while (excludedPorts.includes(port));
-    return port;
+function findAvailablePort(min = 49152, max = 65535, excludedPorts: number[] = []): Promise<number> {
+    const checkPort = (port: number): Promise<boolean> => {
+        return new Promise(resolve => {
+            const server = net.createServer();
+            server.unref();
+            server.on('error', () => resolve(false));
+            server.listen(port, () => {
+                server.close(() => resolve(true));
+            });
+        });
+    };
+
+    return new Promise(async (resolve) => {
+        let port = Math.floor(Math.random() * (max - min + 1)) + min;
+        while (true) {
+            if (!excludedPorts.includes(port)) {
+                const isAvailable = await checkPort(port);
+                if (isAvailable) {
+                    resolve(port);
+                    return;
+                }
+            }
+            port++;
+            if (port > max) {
+                port = min;
+            }
+        }
+    });
 }
 
 // Example usage:
@@ -88,7 +111,7 @@ const excluded = [
     63000,
     64000
 ];
-export const MY_TCP_PORT = getRandomPort(49152, 65535, excluded);
+export let MY_TCP_PORT: number;
 const frameparser = new FrameParser()
 
 // --- Helper to get local IP addresses for broadcasting ---
@@ -129,75 +152,81 @@ export function startDiscovery(ipcSender?: PeerUpdateSender, peerName?: string, 
         return;
     }
 
-    if (ipcSender) {
-        ipcPeerUpdateSender = ipcSender;
-    }
-    currentPeerName = peerName || hostname() || 'Unknown Device';
-    instanceId = peerId || `${APP_ID}_${Math.random().toString(36).substring(2, 15)}`; // Generate a new instance ID if not provided
+    findAvailablePort(49152, 65535, excluded).then(port => {
+        MY_TCP_PORT = port;
 
-    discoverySocket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-
-    discoverySocket.on('error', (err: unknown) => { // Use 'unknown' for catch clause variable
-        let errorMessage = 'Unknown error';
-        if (err instanceof Error) {
-            errorMessage = err.message;
-        } else if (typeof err === 'string') {
-            errorMessage = err;
+        if (ipcSender) {
+            ipcPeerUpdateSender = ipcSender;
         }
-        console.error(`[Discovery] UDP Socket Error: ${errorMessage}`);
-        discoverySocket?.close();
-        discoverySocket = null; // Mark as closed
-    });
+        currentPeerName = peerName || hostname() || 'Unknown Device';
+        instanceId = peerId || `${APP_ID}_${Math.random().toString(36).substring(2, 15)}`; // Generate a new instance ID if not provided
 
-    discoverySocket.on('listening', () => {
-        const address = discoverySocket!.address();
-        console.log(`[Discovery] UDP listening on ${address.address}:${address.port}`);
-        discoverySocket!.setBroadcast(true);
-        startBroadcasting();
-        startPeerCleanup();
-        sendPeerUpdate(); // Initial update when discovery starts
-    });
+        discoverySocket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
 
-    discoverySocket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-        try {
-            const messages = frameparser.feed(msg);
+        discoverySocket.on('error', (err: unknown) => { // Use 'unknown' for catch clause variable
+            let errorMessage = 'Unknown error';
+            if (err instanceof Error) {
+                errorMessage = err.message;
+            } else if (typeof err === 'string') {
+                errorMessage = err;
+            }
+            console.error(`[Discovery] UDP Socket Error: ${errorMessage}`);
+            discoverySocket?.close();
+            discoverySocket = null; // Mark as closed
+        });
 
-            for (const data of messages) {
-                const message: DiscoveryMessage = data.header as DiscoveryMessage;
+        discoverySocket.on('listening', () => {
+            const address = discoverySocket!.address();
+            console.log(`[Discovery] UDP listening on ${address.address}:${address.port}`);
+            discoverySocket!.setBroadcast(true);
+            startBroadcasting();
+            startPeerCleanup();
+            sendPeerUpdate(); // Initial update when discovery starts
+        });
 
-                if (message.instanceId === instanceId || message.appId !== APP_ID) {
-                    return; // Ignore messages from myself or other apps
+        discoverySocket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+            try {
+                const messages = frameparser.feed(msg);
+
+                for (const data of messages) {
+                    const message: DiscoveryMessage = data.header as DiscoveryMessage;
+
+                    if (message.instanceId === instanceId || message.appId !== APP_ID) {
+                        return; // Ignore messages from myself or other apps
+                    }
+
+                    const peer: DiscoveredPeer = {
+                        ...message,
+                        lastSeen: Date.now(),
+                        ipAddress: rinfo.address
+                    };
+
+                    if (!discoveredPeers.has(peer.instanceId)) {
+                        console.log(`[Discovery] New peer UP: ${peer.peerName} (${peer.ipAddress}:${peer.tcpPort})`);
+                        discoveredPeers.set(peer.instanceId, peer);
+                        sendPeerUpdate(); // Send update when a new peer is discovered
+                    } else {
+                        // Just update lastSeen for existing peer
+                        discoveredPeers.get(peer.instanceId)!.lastSeen = Date.now();
+                    }
+
                 }
 
-                const peer: DiscoveredPeer = {
-                    ...message,
-                    lastSeen: Date.now(),
-                    ipAddress: rinfo.address
-                };
-
-                if (!discoveredPeers.has(peer.instanceId)) {
-                    console.log(`[Discovery] New peer UP: ${peer.peerName} (${peer.ipAddress}:${peer.tcpPort})`);
-                    discoveredPeers.set(peer.instanceId, peer);
-                    sendPeerUpdate(); // Send update when a new peer is discovered
-                } else {
-                    // Just update lastSeen for existing peer
-                    discoveredPeers.get(peer.instanceId)!.lastSeen = Date.now();
+            } catch (e: unknown) { // Use 'unknown' for catch clause variable
+                let errorMessage = 'Unknown error parsing message';
+                if (e instanceof Error) {
+                    errorMessage = e.message;
+                } else if (typeof e === 'string') {
+                    errorMessage = e;
                 }
-
+                console.warn(`[Discovery] Failed to parse discovery message from ${rinfo.address}: ${errorMessage}`);
             }
+        });
 
-        } catch (e: unknown) { // Use 'unknown' for catch clause variable
-            let errorMessage = 'Unknown error parsing message';
-            if (e instanceof Error) {
-                errorMessage = e.message;
-            } else if (typeof e === 'string') {
-                errorMessage = e;
-            }
-            console.warn(`[Discovery] Failed to parse discovery message from ${rinfo.address}: ${errorMessage}`);
-        }
+        discoverySocket.bind(DISCOVERY_PORT);
+    }).catch(err => {
+        console.error("Failed to find an available port for discovery.", err);
     });
-
-    discoverySocket.bind(DISCOVERY_PORT);
 }
 
 export function stopDiscovery(): void {
