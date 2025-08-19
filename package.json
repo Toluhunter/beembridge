@@ -2,6 +2,28 @@
   "name": "beembridge",
   "version": "0.1.0",
   "private": true,
+  "main": "dist/main/electron/main.js",
+  "build": {
+    "appId": "com.toluhunter.bb",
+    "productName": "beembridge",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  },
   "scripts": {
     "dev:next": "next dev --turbopack",
     "dev:electron": "tsc -p tsconfig.electron.json && electron dist/main/electron/main.js",
@@ -10,7 +32,7 @@
     "lint": "next lint",
     "build:next": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
-    "pack": "electron-builder --dir",
+    "pack": "npm run build:next && npm run build:electron && electron-builder --dir",
     "dist": "npm run build:next && npm run build:electron && electron-builder"
   },
   "dependencies": {
