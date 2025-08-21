@@ -62,7 +62,7 @@ function createWindow() {
       contextIsolation: true, // Recommended for security
     },
   });
-  // const pathToNextRenderer = path.join(__dirname, '..', '..', 'renderer', 'index.html');
+  const pathToNextRenderer = path.join(__dirname, '..', '..', 'renderer', 'index.html');
 
   if (isDev) {
     // Load Next.js development server URL
@@ -70,21 +70,22 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   } else {
     // Load the Next.js static build
-    const rendererPath = path.join(app.getAppPath(), 'dist', 'renderer', 'index.html');
-    mainWindow.loadURL(
-      url.format({
-        pathname: rendererPath,
-        protocol: 'file:',
-        slashes: true,
-      })
-    );
+    // const rendererPath = path.join(app.getAppPath(), 'dist', 'renderer', 'index.html');
     // mainWindow.loadURL(
     //   url.format({
-    //     pathname: pathToNextRenderer,
+    //     pathname: rendererPath,
     //     protocol: 'file:',
     //     slashes: true,
     //   })
     // );
+    mainWindow.loadURL(
+      url.format({
+        pathname: pathToNextRenderer,
+        protocol: 'file:',
+        slashes: true,
+      })
+    );
+    mainWindow.webContents.openDevTools();
   }
 
   mainWindow.on('closed', () => {

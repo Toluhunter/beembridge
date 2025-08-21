@@ -1,3 +1,5 @@
+@import url('https://assets.vercel.com/raw/upload/v1587415301/fonts/2/Geist.css');
+@import url('https://assets.vercel.com/raw/upload/v1587415301/fonts/2/GeistMono.css');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
@@ -9,8 +11,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: 'Geist', sans-serif;
+  --font-mono: 'Geist Mono', monospace;
 }
 
 @media (prefers-color-scheme: dark) {

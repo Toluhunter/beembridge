@@ -27,8 +27,8 @@
   "scripts": {
     "dev:next": "next dev --turbopack",
     "dev:electron": "tsc -p tsconfig.electron.json && electron dist/main/electron/main.js",
-    "dev": "concurrently \"npm run dev:next\" \"npm run dev:electron\"",
-    "start": "next start",
+    "dev": "cross-env NODE_ENV='development' concurrently \"npm run dev:next\" \"npm run dev:electron\"",
+    "start": "npm run build:next && npm run build:electron && electron dist/main/electron/main.js",
     "lint": "next lint",
     "build:next": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
@@ -51,6 +51,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^9.1.2",
+    "cross-env": "^10.0.0",
     "electron": "^36.4.0",
     "electron-builder": "^26.0.12",
     "eslint": "^9",
