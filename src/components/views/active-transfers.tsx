@@ -13,6 +13,7 @@ export type Progress = {
     percentage: number;
     speedKbps?: number; // Optional: speed calculation
     parentId?: string;
+    rootDir?: string;
 }
 
 interface ActiveTransferViewProps {
@@ -51,11 +52,11 @@ export const ActiveTransferView: React.FC<ActiveTransferViewProps> = ({ activeTr
         const individual: ActiveTransferDisplayItem[] = [];
 
         activeTransfers.forEach(transfer => {
-            if (transfer.parentId) {
-                if (!grouped[transfer.parentId]) {
-                    grouped[transfer.parentId] = [];
+            if (transfer.parentId && transfer.rootDir) {
+                if (!grouped[transfer.rootDir]) {
+                    grouped[transfer.rootDir] = [];
                 }
-                grouped[transfer.parentId].push(transfer);
+                grouped[transfer.rootDir].push(transfer);
             } else {
                 individual.push(transfer);
             }

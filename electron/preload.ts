@@ -21,6 +21,7 @@ export type Progress = {
     percentage: number;
     speedKbps?: number; // Optional: speed calculation
     parentId?: string;
+    rootDir?: string;
 }
 
 declare global {

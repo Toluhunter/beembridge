@@ -113,6 +113,7 @@ export type Progress = {
     percentage: number;
     speedKbps?: number; // Optional: speed calculation
     parentId?: string;
+    rootDir?: string;
 }
 // --- Progress/Status Callbacks ---
 export type TransferProgressCallback = (progress: Progress) => void;

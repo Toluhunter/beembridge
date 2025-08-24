@@ -119,7 +119,8 @@ export async function initiateFileTransfer(
     onComplete: TransferCompleteCallback,
     onError: (fileId: string, message: string) => void,
     parentId?: string,
-    prefix?: string
+    prefix?: string,
+    rootDir?: string
 ): Promise<void> {
     console.log(`[Sender] Calculating checksum for file ${filePath}...`);
     const fileName = path.basename(filePath);
@@ -210,6 +211,7 @@ export async function initiateFileTransfer(
                         transferredBytes: currentChunkIndex * CHUNK_SIZE,
                         percentage: Math.min(100, Math.round(((currentChunkIndex * CHUNK_SIZE) / fileSize) * 100)),
                         parentId: parentId,
+                        rootDir: rootDir,
                     });
                     console.log(`[Sender] Sent chunk ${chunkIndexToSend} for file ${fileName}.`);
 

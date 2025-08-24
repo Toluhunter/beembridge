@@ -2,13 +2,14 @@
 import { app, BrowserWindow, screen, ipcMain, dialog } from 'electron';
 import { DiscoveredPeer, startDiscovery } from './utilities/peerDiscovery';
 import { connectToPeer, startTcpServer } from './utilities/peerConnection';
+import { createHash } from 'crypto';
 import * as path from 'path';
 import * as os from 'os';
 import * as url from 'url';
 import * as dotenv from 'dotenv';
 import * as net from 'net';
 import Store from 'electron-store'
-import { v4 as uuidv4 } from 'uuid'; // npm install uuid
+import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import { Progress, Result } from './utilities/transfer/types';
 import { initiateFileTransfer, calculateFileHash } from './utilities/transfer/sender';
@@ -52,32 +53,33 @@ const activeConnections = new Map<string, { peer: DiscoveredPeer, socket: net.So
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
-
-  mainWindow = new BrowserWindow({
-    width: Math.floor(width * 0.8),
-    height: Math.floor(height * 0.8),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'), // Optional: for exposing Node.js APIs to renderer
-      nodeIntegration: false, // Recommended for security
-      contextIsolation: true, // Recommended for security
-    },
-  });
   const pathToNextRenderer = path.join(__dirname, '..', '..', 'renderer', 'index.html');
 
   if (isDev) {
     // Load Next.js development server URL
+    mainWindow = new BrowserWindow({
+      width: Math.floor(width * 0.8),
+      height: Math.floor(height * 0.8),
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'), // Optional: for exposing Node.js APIs to renderer
+        nodeIntegration: false, // Recommended for security
+        contextIsolation: true, // Recommended for security
+      },
+    });
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
   } else {
     // Load the Next.js static build
-    // const rendererPath = path.join(app.getAppPath(), 'dist', 'renderer', 'index.html');
-    // mainWindow.loadURL(
-    //   url.format({
-    //     pathname: rendererPath,
-    //     protocol: 'file:',
-    //     slashes: true,
-    //   })
-    // );
+    mainWindow = new BrowserWindow({
+      width: Math.floor(width * 0.8),
+      height: Math.floor(height * 0.8),
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'), // Optional: for exposing Node.js APIs to renderer
+        nodeIntegration: false, // Recommended for security
+        contextIsolation: true, // Recommended for security
+        devTools: false,
+      },
+    });
     mainWindow.loadURL(
       url.format({
         pathname: pathToNextRenderer,
@@ -85,7 +87,6 @@ function createWindow() {
         slashes: true,
       })
     );
-    mainWindow.webContents.openDevTools();
   }
 
   mainWindow.on('closed', () => {
@@ -107,6 +108,7 @@ function createWindow() {
     filePath: string;
     parentId?: string;
     prefix?: string;
+    rootDir?: string;
   }
 
   ipcMain.on('send-files-to-peers', async (event, files: SelectedItem[], peers: DiscoveredPeer[]) => {
@@ -134,7 +136,8 @@ function createWindow() {
             fileId,
             filePath,
             parentId,
-            prefix: prefix === '' ? '' : prefix + path.sep
+            prefix: prefix === '' ? '' : prefix + path.sep,
+            rootDir: rootDir
           });
         }
       }
@@ -144,7 +147,8 @@ function createWindow() {
     for (const file of files) {
       console.log(`Processing file: ${file.name}, Path: ${file.path}, Is Directory: ${file.isDirectory}`);
       if (file.isDirectory) {
-        const parentId = uuidv4();
+        const hash = createHash('md5')
+        const parentId = hash.update(`${file.path}:${file.lastModified}:${file.size}`).digest('hex');
         await readDirectoryRecursive(file.path, parentId, file.path);
       } else {
         const fileId = await calculateFileHash(file.path, (percentage) => {
@@ -190,7 +194,8 @@ function createWindow() {
             sendNext(); // Trigger next file transfer if any
           },
           file.parentId,
-          file.prefix // Pass the prefix if needed by your transfer logic
+          file.prefix, // Pass the prefix if needed by your transfer logic
+          file.rootDir
         );
         await new Promise(resolve => setTimeout(resolve, 1500)); // Small delay to avoid overwhelming the socket
       }
@@ -245,7 +250,7 @@ function createWindow() {
     );
   });
 
-  ipcMain.handle('dialog:openFile', async (event, options) => {
+  ipcMain.handle('dialog:openFile', async (_event, options) => {
     const defaultOptions = {
       properties: ['openFile'], // Default to opening files
       filters: [],
