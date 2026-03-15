@@ -1,0 +1,188 @@
+@import url('https://assets.vercel.com/raw/upload/v1587415301/fonts/2/Geist.css');
+@import url('https://assets.vercel.com/raw/upload/v1587415301/fonts/2/GeistMono.css');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+:root {
+    --background: #ffffff;
+    --foreground: #171717;
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --font-sans: 'Inter', sans-serif;
+    --font-mono: 'Geist Mono', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --background: #0a0a0a;
+        --foreground: #ededed;
+    }
+}
+
+/* ============================================================
+   Semantic design tokens — edit these to retheme the entire app
+   ============================================================ */
+@theme {
+    /* Surfaces (dark elevation stack) */
+    --color-canvas: #030712;        /* gray-950 — root app background */
+    --color-surface: #111827;       /* gray-900 — inputs, slightly elevated */
+    --color-card: #1f2937;          /* gray-800 — cards, panels */
+    --color-raised: #374151;        /* gray-700 — hover states, elevated items */
+    --color-muted-fill: #4b5563;    /* gray-600 — progress tracks, sub-surfaces */
+
+    /* Content / Text */
+    --color-content: #ffffff;             /* white — primary headings & body */
+    --color-content-secondary: #d1d5db;  /* gray-300 — secondary body text */
+    --color-content-muted: #9ca3af;      /* gray-400 — muted/helper text */
+    --color-content-dim: #6b7280;        /* gray-500 — placeholder, disabled */
+    --color-content-faint: #4b5563;      /* gray-600 — barely-visible labels */
+
+    /* Borders & Dividers */
+    --color-border: #4b5563;         /* gray-600 — default borders */
+    --color-border-subtle: #374151;  /* gray-700 — subtle borders, dividers */
+    --color-border-faint: #1f2937;   /* gray-800 — very faint borders */
+
+    /* Accent (indigo / violet) */
+    --color-accent: #6366f1;         /* indigo-500 — focus rings, active states */
+    --color-accent-light: #818cf8;   /* indigo-400 — icons, lighter accent text */
+    --color-accent-dim: color-mix(in srgb, #6366f1 10%, transparent); /* icon bg wells */
+}
+
+html {
+    font-size: 16px;
+}
+
+@media (max-width: 767px) {
+    html {
+        font-size: 15px;
+    }
+}
+
+body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: 'Inter', sans-serif;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+button:not(:disabled) {
+    cursor: pointer;
+}
+
+/* Safe area insets — exposed by Android WebView and iOS WKWebView when viewport-fit=cover */
+:root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+}
+
+/* Push content below the status bar / notch */
+.safe-top {
+    padding-top: var(--sat);
+}
+
+/* Keep bottom nav buttons above the system nav bar / home indicator */
+.safe-bottom {
+    padding-bottom: var(--sab);
+}
+
+/* Respect side insets in landscape orientation */
+.safe-sides {
+    padding-left: var(--sal);
+    padding-right: var(--sar);
+}
+
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-card);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-accent);
+}
+
+/* Modern button styling */
+.modern-button {
+    background: linear-gradient(90deg, #6366F1, #8B5CF6);
+    /* Indigo to violet */
+    box-shadow: 0 4px 10px rgba(99, 102, 241, 0.4);
+    transition: all 0.3s ease;
+}
+
+.modern-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(99, 102, 241, 0.6);
+}
+
+.modern-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 5px rgba(99, 102, 241, 0.3);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--color-card);
+    border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-content-dim);
+}
+
+/* Hide scrollbars on mobile — scrolling still works */
+@media (max-width: 767px) {
+    * {
+        scrollbar-width: none;       /* Firefox */
+        -ms-overflow-style: none;    /* IE / Edge legacy */
+    }
+    *::-webkit-scrollbar {
+        display: none;               /* Chrome / Safari / Android WebView / WKWebView */
+    }
+}
+
+/* Sonar animation styles */
+@keyframes sonarPulse {
+    0% {
+        transform: scale(0.1);
+        opacity: 0;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 0;
+    }
+}
+
+.sonar-pulse {
+    animation: sonarPulse 2s ease-out infinite;
+}

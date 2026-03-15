@@ -1,0 +1,466 @@
+import { RiRadarFill } from "react-icons/ri";
+import {
+    StartPeerDiscovery,
+    StopPeerDiscovery,
+    GetDiscoveredPeers,
+    ConnectToPeer,
+    RespondToPeerConnectionRequest,
+    DisconnectFromPeer
+} from "../../../wailsjs/go/main/App.js"
+import location from "../../assets/images/location-search_nesh.svg"
+import { CircularProgress, MagnifyingGlass, ThreeCircles } from "react-loader-spinner";
+import * as runtime from '../../../wailsjs/runtime/runtime.js';
+import { MdDevices } from "react-icons/md";
+import {
+    useState,
+    useEffect,
+    useCallback
+} from "react";
+
+
+interface DiscoveryMessage {
+    appId: string;
+    instanceId: string;
+    peerName: string;
+    tcpPort: number;
+    timestamp: number;
+}
+
+export interface DiscoveredPeer extends DiscoveryMessage {
+    lastSeen: string;
+    ipAddress: string;
+}
+
+
+const PEER_DISCOVERY_TIME = 30 * 1000;
+
+interface PeerViewProps {
+    connectedPeers: DiscoveredPeer[];
+    setConnectedPeers: React.Dispatch<React.SetStateAction<DiscoveredPeer[]>>;
+}
+export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnectedPeers }) => {
+    const [discoveredPeers, setDiscoveredPeers] = useState<DiscoveredPeer[]>([]);
+    const [incomingRequest, setIncomingRequest] = useState<{ peer: DiscoveredPeer, requestId: string, accept: () => void, reject: () => void } | null>(null);
+    const [isDiscovering, setIsDiscovering] = useState(false);
+    const [connectingPeerId, setConnectingPeerId] = useState<string | null>(null);
+    const [isDiscoveryButtonDisabled, setIsDiscoveryButtonDisabled] = useState(false);
+    const [ellipsis, setEllipsis] = useState<string>('');
+    const [connectedPage, setConnectedPage] = useState(1);
+    const [connectedPerPage, setConnectedPerPage] = useState<number>(3);
+    const [discoveredPage, setDiscoveredPage] = useState(1);
+    const [discoveredPerPage, setDiscoveredPerPage] = useState<number>(6);
+
+    const updatePerPage = useCallback(() => {
+        if (typeof window === 'undefined') return;
+        const w = window.innerWidth;
+
+        let conn = 1;
+        if (w >= 1536) conn = 5;
+        else if (w >= 1280) conn = 4;
+        else if (w >= 1024) conn = 3;
+        else if (w >= 768) conn = 2;
+        else conn = 1;
+
+        let disc = 1;
+        if (w >= 1536) disc = 5;
+        else if (w >= 1280) disc = 5;
+        else if (w >= 1024) disc = 4;
+        else if (w >= 768) disc = 3;
+        else if (w >= 640) disc = 2;
+        else disc = 1;
+
+        setConnectedPerPage(conn);
+        setDiscoveredPerPage(disc);
+        setConnectedPage(1);
+        setDiscoveredPage(1);
+    }, []);
+
+    useEffect(() => {
+        updatePerPage();
+        window.addEventListener('resize', updatePerPage);
+        return () => window.removeEventListener('resize', updatePerPage);
+    }, [updatePerPage]);
+
+    const generateDummyPeer = (i: number, connected = false): DiscoveredPeer => ({
+        appId: 'beembridge_dummy_app',
+        instanceId: `${connected ? 'connected' : 'discovered'}-dummy-${i}`,
+        peerName: `Dummy Peer ${i + 1}${connected ? ' (Connected)' : ''}`,
+        tcpPort: 9000 + i,
+        timestamp: Date.now(),
+        lastSeen: new Date(Date.now() - i * 60000).toISOString(),
+        ipAddress: `192.168.0.${10 + i}`
+    });
+
+    useEffect(() => {
+        // Dummy data injection disabled
+    }, []);
+
+    useEffect(() => {
+        let intervalId: NodeJS.Timeout | undefined;
+
+        if (isDiscovering) {
+            intervalId = setInterval(() => {
+                GetDiscoveredPeers().then(peers => {
+                    const filteredDiscoveries = peers.filter(
+                        newPeer => !connectedPeers.some(connectedPeer => connectedPeer.instanceId === newPeer.instanceId)
+                    );
+                    setDiscoveredPeers(filteredDiscoveries);
+                });
+            }, 1000);
+        }
+
+        return () => {
+            if (intervalId) {
+                clearInterval(intervalId);
+            }
+        };
+    }, [isDiscovering, connectedPeers]);
+
+    useEffect(() => {
+        let idx = 0;
+        let timer: NodeJS.Timeout | undefined;
+
+        if (isDiscovering && discoveredPeers.length === 0) {
+            timer = setInterval(() => {
+                idx = (idx + 1) % 4;
+                setEllipsis('.'.repeat(idx));
+            }, 500);
+        } else {
+            setEllipsis('');
+        }
+
+        return () => {
+            if (timer) clearInterval(timer);
+        };
+    }, [isDiscovering, discoveredPeers.length]);
+
+    const onConnectionResponse = useCallback((peer: DiscoveredPeer, status: string, reason?: string) => {
+        console.log(`[RECEIVER] Connection status with ${peer.peerName}: ${status}${reason ? ` (${reason})` : ''}`);
+        if (status === 'accepted') {
+            setConnectedPeers(prevConnected => {
+                if (!prevConnected.some(p => p.instanceId === peer.instanceId)) {
+                    return [...prevConnected, peer];
+                }
+                return prevConnected;
+            });
+            setDiscoveredPeers(prevDiscovered => prevDiscovered.filter(p => p.instanceId !== peer.instanceId));
+            console.log("[RECEIVER] Connection ready! You can send data now.");
+        } else if (status === 'rejected' || status === 'failed' || status === 'timeout') {
+            console.log("[RECEIVER] Connection failed or rejected. Please try another peer.");
+            setDiscoveredPeers(prevDiscovered => {
+                if (!prevDiscovered.some(p => p.instanceId === peer.instanceId)) {
+                    return [...prevDiscovered, peer];
+                }
+                return prevDiscovered;
+            });
+        }
+        setConnectingPeerId(null);
+    }, [setConnectedPeers]);
+
+    useEffect(() => {
+        const cleanupOnPeerConnectionRequest = runtime.EventsOn("onPeerConnectionRequest", (peer, requestId) => {
+            console.log(`[RECEIVER] Connection request from ${peer.peerName} (${requestId})`);
+            const accept = () => {
+                RespondToPeerConnectionRequest(requestId, true);
+                setIncomingRequest(null);
+            };
+
+            const reject = (reason?: string) => {
+                RespondToPeerConnectionRequest(requestId, false);
+                setIncomingRequest(null);
+            };
+            setIncomingRequest({ peer, requestId, accept, reject });
+        });
+
+        const cleanupOnConnectionResponse = runtime.EventsOn("onConnectionResponse", (peer, status, reason) => {
+            onConnectionResponse(peer, status, reason);
+            setConnectingPeerId(null);
+        });
+
+        const cleanupOnPeerConnected = runtime.EventsOn("onPeerConnected", (peer) => {
+            console.log(`[RECEIVER] Connection status with ${peer.peerName}: accepted`);
+            onConnectionResponse(peer, 'accepted');
+        });
+
+        return () => {
+            if (cleanupOnPeerConnectionRequest) cleanupOnPeerConnectionRequest();
+            if (cleanupOnConnectionResponse) cleanupOnConnectionResponse();
+            if (cleanupOnPeerConnected) cleanupOnPeerConnected();
+        }
+    }, [onConnectionResponse]);
+
+    const startDiscovery = () => {
+        if (isDiscoveryButtonDisabled) {
+            return;
+        }
+        setIsDiscoveryButtonDisabled(true);
+        setTimeout(() => setIsDiscoveryButtonDisabled(false), 1200);
+
+        if (isDiscovering) {
+            StopPeerDiscovery();
+            setIsDiscovering(false);
+            setDiscoveredPeers([]);
+        } else {
+            StartPeerDiscovery();
+            setIsDiscovering(true);
+        }
+    };
+
+    const handleConnect = (peerToConnect: DiscoveredPeer) => {
+        setConnectingPeerId(peerToConnect.instanceId);
+        console.log(`Attempting to connect to peer: ${peerToConnect.peerName} (${peerToConnect.instanceId})`);
+        ConnectToPeer(peerToConnect);
+    };
+
+    const handleDisconnect = async (peerToDisconnect: DiscoveredPeer) => {
+        setConnectingPeerId(null);
+        console.log(`Attempting to disconnect from peer: ${peerToDisconnect.peerName} (${peerToDisconnect.instanceId})`);
+        try {
+            await DisconnectFromPeer(peerToDisconnect.instanceId);
+        } catch (err) {
+            console.error("DisconnectFromPeer error:", err);
+        } finally {
+            setConnectedPeers(prev => prev.filter(p => p.instanceId !== peerToDisconnect.instanceId));
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full px-4 pt-4 md:px-6 md:pt-6">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-2xl md:text-4xl font-bold text-content">Peers</h1>
+                {incomingRequest && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                        <div className="bg-card rounded-lg p-6 w-full max-w-md">
+                            <h2 className="text-2xl font-bold text-content mb-4">Incoming Connection Request</h2>
+                            <p className="text-content-secondary mb-4">
+                                {incomingRequest.peer.peerName} ({incomingRequest.peer.ipAddress}:{incomingRequest.peer.tcpPort}) wants to connect.
+                            </p>
+                            <div className="flex justify-end">
+                                <button
+                                    className="mr-2 px-4 py-2 rounded-lg bg-red-500 text-content hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+                                    onClick={() => {
+                                        if (incomingRequest) {
+                                            incomingRequest.reject();
+                                            setIncomingRequest(null);
+                                        }
+                                    }}
+                                >
+                                    Reject
+                                </button>
+                                <button
+                                    className="px-4 py-2 rounded-lg bg-green-500 text-content hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
+                                    onClick={() => {
+                                        if (incomingRequest) {
+                                            incomingRequest.accept();
+                                            setConnectedPeers(prevConnected => {
+                                                if (!prevConnected.some(p => p.instanceId === incomingRequest.peer.instanceId)) {
+                                                    return [...prevConnected, incomingRequest.peer];
+                                                }
+                                                return prevConnected;
+                                            });
+                                            setIncomingRequest(null);
+                                        }
+                                    }}
+                                >
+                                    Accept
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Discovery control */}
+            <div className="flex justify-end mb-6">
+                <button
+                    className="modern-button text-content font-bold py-2 px-6 rounded-lg shadow-md"
+                    onClick={startDiscovery}
+                    disabled={isDiscoveryButtonDisabled}
+                >
+                    {isDiscovering ? 'Stop' : 'Find Peer'}
+                </button>
+            </div>
+
+            {/* Connected Peers Section */}
+            {connectedPeers.length > 0 && (
+                <div className="mb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6 justify-items-center">
+                        {(() => {
+                            const total = connectedPeers.length;
+                            const totalPages = Math.ceil(total / connectedPerPage) || 1;
+                            const start = (connectedPage - 1) * connectedPerPage;
+                            const end = start + connectedPerPage;
+                            const pageItems = connectedPeers.slice(start, end);
+                            return (
+                                <>
+                                    {pageItems.map((peer) => (
+                                        <div key={peer.instanceId} className="relative bg-card/60 h-64 rounded-xl p-4 border border-green-700/40 shadow-2xl w-full aspect-square flex flex-col justify-between break-words">
+                                            <div className="space-y-1 flex flex-col items-center text-center">
+                                                <MdDevices className="text-green-400 text-6xl mb-1" />
+                                                <h3 className="text-lg font-semibold text-content leading-tight break-words">{peer.peerName} <span className="text-green-400 text-sm">(Connected)</span></h3>
+                                                <p className="text-content-muted text-sm break-words">ID: {peer.instanceId}</p>
+                                            </div>
+
+                                            <div className="flex flex-col items-center w-full justify-between pt-2 gap-2">
+                                                <p className="text-content-dim text-xs">Last active: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
+                                                <button
+                                                    onClick={() => handleDisconnect(peer)}
+                                                    className="border border-red-600 text-red-600 px-3 py-1 rounded-md hover:bg-red-600 hover:text-content transition-colors text-sm"
+                                                >
+                                                    Disconnect
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {totalPages > 1 && (
+                                        <div className="col-span-full flex justify-between items-center p-2 mt-4 border-t border-border-subtle bg-card/30 rounded">
+                                            <div className="text-sm text-content-muted">
+                                                Showing {Math.min(start + 1, total)} to {Math.min(end, total)} of {total} items
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <button
+                                                    onClick={() => setConnectedPage(prev => Math.max(prev - 1, 1))}
+                                                    disabled={connectedPage === 1}
+                                                    className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
+                                                    aria-label="Previous Page"
+                                                >
+                                                    {'<'}
+                                                </button>
+                                                <div className="text-sm text-content-secondary">{connectedPage} / {totalPages}</div>
+                                                <button
+                                                    onClick={() => setConnectedPage(prev => Math.min(prev + 1, totalPages))}
+                                                    disabled={connectedPage === totalPages}
+                                                    className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
+                                                    aria-label="Next Page"
+                                                >
+                                                    {'>'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            );
+                        })()}
+                    </div>
+                </div>
+            )}
+
+            {/* Discovered Peers Section */}
+            <div className="flex-1 flex flex-col">
+                {(connectedPeers.length == 0 || isDiscovering) && (
+
+                    <div className="flex-1 overflow-y-auto min-h-60 border-t border-border-subtle/50 md:border md:rounded-2xl md:shadow-xl p-3 md:p-6 relative">
+                        {isDiscovering && discoveredPeers.length === 0 && (
+                            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black bg-opacity-30">
+                                <div className="p-6 bg-transparent rounded flex flex-col items-center">
+                                    <ThreeCircles
+                                        visible={true}
+                                        height="100"
+                                        width="100"
+                                        color="oklch(49.6% 0.265 301.924)"
+                                        ariaLabel="three-circles-loading"
+                                        wrapperStyle={{}}
+                                        wrapperClass=""
+                                    />
+                                    <p className="text-content text-lg mt-4 text-center">Searching for peers
+                                        <span className="ml-2">{ellipsis}</span>
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        {discoveredPeers.length === 0 && !isDiscovering ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center">
+                                <div className="mb-8">
+                                    <img src="/src/assets/images/location-search_nesh.svg" alt="Location Search" className="max-w-xs w-full" />
+                                </div>
+                                <p className="text-content-muted text-xl mb-8">
+                                    No peers detected yet.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="relative">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-6 justify-items-center">
+                                    {(() => {
+                                        const total = discoveredPeers.length;
+                                        const totalPages = Math.ceil(total / discoveredPerPage) || 1;
+                                        const start = (discoveredPage - 1) * discoveredPerPage;
+                                        const end = start + discoveredPerPage;
+                                        const pageItems = discoveredPeers.slice(start, end);
+                                        return (
+                                            <>
+                                                {pageItems.map((peer) => (
+                                                    <div
+                                                        key={peer.instanceId}
+                                                        className={`bg-card/60 rounded-xl p-4 border border-border-subtle/40 shadow-2xl w-full h-80 aspect-square flex flex-col justify-between break-words whitespace-normal
+                                                        ${connectingPeerId === peer.instanceId ? 'connecting-animation' : ''}`}
+                                                    >
+                                                        <div className="flex justify-center">
+                                                            <MdDevices className="text-blue-400 text-6xl" />
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <h3 className="text-lg font-semibold text-content leading-tight break-words whitespace-normal">{peer.peerName}</h3>
+                                                            <p className="text-content-muted text-sm break-words whitespace-normal">ID: {peer.instanceId}</p>
+                                                            <p className="text-content-dim text-xs break-words whitespace-normal">IP: {peer.ipAddress}</p>
+                                                        </div>
+                                                        <div className="flex flex-col gap-4 justify-between items-center pt-2">
+                                                            <p className="text-content-dim text-xs">Last: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
+                                                            <button
+                                                                className="modern-button ml-4 py-1 px-3 text-content font-bold rounded-lg shadow-md text-sm"
+                                                                onClick={() => handleConnect(peer)}
+                                                                disabled={connectingPeerId === peer.instanceId}
+                                                            >
+                                                                {connectingPeerId === peer.instanceId ? (
+                                                                    <span className="flex items-center justify-center">
+                                                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-content" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                        </svg>
+                                                                        Connecting...
+                                                                    </span>
+                                                                ) : (
+                                                                    "Connect"
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+
+                                                {totalPages > 1 && (
+                                                    <div className="col-span-full flex justify-between items-center p-2 mt-4 border-t border-border-subtle bg-card/30 rounded">
+                                                        <div className="text-sm text-content-muted">
+                                                            Showing {Math.min(start + 1, total)} to {Math.min(end, total)} of {total} items
+                                                        </div>
+                                                        <div className="flex items-center space-x-2">
+                                                            <button
+                                                                onClick={() => setDiscoveredPage(prev => Math.max(prev - 1, 1))}
+                                                                disabled={discoveredPage === 1}
+                                                                className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
+                                                                aria-label="Previous Page"
+                                                            >
+                                                                {'<'}
+                                                            </button>
+                                                            <div className="text-sm text-content-secondary">{discoveredPage} / {totalPages}</div>
+                                                            <button
+                                                                onClick={() => setDiscoveredPage(prev => Math.min(prev + 1, totalPages))}
+                                                                disabled={discoveredPage === totalPages}
+                                                                className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
+                                                                aria-label="Next Page"
+                                                            >
+                                                                {'>'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div >
+    );
+};
