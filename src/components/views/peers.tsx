@@ -1,4 +1,5 @@
 import { RiRadarFill } from "react-icons/ri";
+import { useMockPeerDiscovery } from '../../utils/mockPeers';
 import {
     StartPeerDiscovery,
     StopPeerDiscovery,
@@ -206,10 +207,15 @@ export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnected
         }
     };
 
+    const { mockDiscoveredPeers, simulateMockConnect } = useMockPeerDiscovery(isDiscovering);
+    const renderDiscoveredPeers = discoveredPeers.length > 0 ? discoveredPeers : mockDiscoveredPeers;
+
     const handleConnect = (peerToConnect: DiscoveredPeer) => {
         setConnectingPeerId(peerToConnect.instanceId);
         console.log(`Attempting to connect to peer: ${peerToConnect.peerName} (${peerToConnect.instanceId})`);
-        ConnectToPeer(peerToConnect);
+        if (!simulateMockConnect(peerToConnect, onConnectionResponse)) {
+            ConnectToPeer(peerToConnect);
+        }
     };
 
     const handleDisconnect = async (peerToDisconnect: DiscoveredPeer) => {
@@ -281,185 +287,274 @@ export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnected
                 </button>
             </div>
 
-            {/* Connected Peers Section */}
-            {connectedPeers.length > 0 && (
-                <div className="mb-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6 justify-items-center">
-                        {(() => {
-                            const total = connectedPeers.length;
-                            const totalPages = Math.ceil(total / connectedPerPage) || 1;
-                            const start = (connectedPage - 1) * connectedPerPage;
-                            const end = start + connectedPerPage;
-                            const pageItems = connectedPeers.slice(start, end);
-                            return (
-                                <>
-                                    {pageItems.map((peer) => (
-                                        <div key={peer.instanceId} className="relative bg-card/60 h-64 rounded-xl p-4 border border-green-700/40 shadow-2xl w-full aspect-square flex flex-col justify-between break-words">
-                                            <div className="space-y-1 flex flex-col items-center text-center">
-                                                <MdDevices className="text-green-400 text-6xl mb-1" />
-                                                <h3 className="text-lg font-semibold text-content leading-tight break-words">{peer.peerName} <span className="text-green-400 text-sm">(Connected)</span></h3>
-                                                <p className="text-content-muted text-sm break-words">ID: {peer.instanceId}</p>
-                                            </div>
+            {/* ── MOBILE layout (< md) ── */}
+            <div className="md:hidden flex-1 flex flex-col gap-4 min-h-0">
 
-                                            <div className="flex flex-col items-center w-full justify-between pt-2 gap-2">
-                                                <p className="text-content-dim text-xs">Last active: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
-                                                <button
-                                                    onClick={() => handleDisconnect(peer)}
-                                                    className="border border-red-600 text-red-600 px-3 py-1 rounded-md hover:bg-red-600 hover:text-content transition-colors text-sm"
-                                                >
-                                                    Disconnect
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-
-                                    {totalPages > 1 && (
-                                        <div className="col-span-full flex justify-between items-center p-2 mt-4 border-t border-border-subtle bg-card/30 rounded">
-                                            <div className="text-sm text-content-muted">
-                                                Showing {Math.min(start + 1, total)} to {Math.min(end, total)} of {total} items
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                                <button
-                                                    onClick={() => setConnectedPage(prev => Math.max(prev - 1, 1))}
-                                                    disabled={connectedPage === 1}
-                                                    className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
-                                                    aria-label="Previous Page"
-                                                >
-                                                    {'<'}
-                                                </button>
-                                                <div className="text-sm text-content-secondary">{connectedPage} / {totalPages}</div>
-                                                <button
-                                                    onClick={() => setConnectedPage(prev => Math.min(prev + 1, totalPages))}
-                                                    disabled={connectedPage === totalPages}
-                                                    className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
-                                                    aria-label="Next Page"
-                                                >
-                                                    {'>'}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </>
-                            );
-                        })()}
+                {/* Connected peers — mobile list */}
+                {connectedPeers.length > 0 && (
+                    <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-content-muted px-1 mb-2">
+                            Connected ({connectedPeers.length})
+                        </p>
+                        <div className="rounded-xl overflow-hidden border border-green-700/30 divide-y divide-border-subtle/30">
+                            {connectedPeers.map((peer) => (
+                                <div key={peer.instanceId} className="flex items-center gap-3 px-4 py-3 bg-card/60 min-h-[64px]">
+                                    <MdDevices className="text-green-400 text-2xl shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-medium text-content leading-tight truncate">{peer.peerName}</p>
+                                        <p className="text-xs text-content-dim">{peer.ipAddress} · Port {peer.tcpPort}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <span className="text-xs text-green-400 font-medium hidden sm:inline">● Connected</span>
+                                        <button
+                                            onClick={() => handleDisconnect(peer)}
+                                            className="border border-red-600 text-red-500 px-3 py-2 rounded-lg text-sm hover:bg-red-600 hover:text-content transition-colors"
+                                        >
+                                            Disconnect
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* Discovered Peers Section */}
-            <div className="flex-1 flex flex-col">
-                {(connectedPeers.length == 0 || isDiscovering) && (
-
-                    <div className="flex-1 overflow-y-auto min-h-60 border-t border-border-subtle/50 md:border md:rounded-2xl md:shadow-xl p-3 md:p-6 relative">
-                        {isDiscovering && discoveredPeers.length === 0 && (
-                            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black bg-opacity-30">
-                                <div className="p-6 bg-transparent rounded flex flex-col items-center">
-                                    <ThreeCircles
-                                        visible={true}
-                                        height="100"
-                                        width="100"
-                                        color="oklch(49.6% 0.265 301.924)"
-                                        ariaLabel="three-circles-loading"
-                                        wrapperStyle={{}}
-                                        wrapperClass=""
-                                    />
-                                    <p className="text-content text-lg mt-4 text-center">Searching for peers
-                                        <span className="ml-2">{ellipsis}</span>
-                                    </p>
-                                </div>
-                            </div>
+                {/* Discovered peers — mobile list */}
+                {(connectedPeers.length === 0 || isDiscovering) && (
+                    <div className="flex-1 flex flex-col">
+                        {(isDiscovering || renderDiscoveredPeers.length > 0) && (
+                            <p className="text-xs font-semibold uppercase tracking-wider text-content-muted px-1 mb-2">
+                                Nearby Devices
+                            </p>
                         )}
-                        {discoveredPeers.length === 0 && !isDiscovering ? (
-                            <div className="flex flex-col items-center justify-center h-full text-center">
-                                <div className="mb-8">
-                                    <img src="/src/assets/images/location-search_nesh.svg" alt="Location Search" className="max-w-xs w-full" />
-                                </div>
-                                <p className="text-content-muted text-xl mb-8">
-                                    No peers detected yet.
+
+                        {isDiscovering && renderDiscoveredPeers.length === 0 ? (
+                            <div className="flex-1 flex flex-col items-center justify-center text-center">
+                                <ThreeCircles
+                                    visible={true}
+                                    height="80"
+                                    width="80"
+                                    color="oklch(49.6% 0.265 301.924)"
+                                    ariaLabel="three-circles-loading"
+                                    wrapperStyle={{}}
+                                    wrapperClass=""
+                                />
+                                <p className="text-content text-base mt-4 text-center">
+                                    Searching for peers<span>{ellipsis}</span>
                                 </p>
                             </div>
+                        ) : renderDiscoveredPeers.length === 0 ? (
+                            <div className="flex-1 flex flex-col items-center justify-center text-center">
+                                <img src="/src/assets/images/location-search_nesh.svg" alt="Location Search" className="max-w-[180px] w-full mb-6" />
+                                <p className="text-content-muted text-lg">No peers detected yet.</p>
+                            </div>
                         ) : (
-                            <div className="relative">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-6 justify-items-center">
-                                    {(() => {
-                                        const total = discoveredPeers.length;
-                                        const totalPages = Math.ceil(total / discoveredPerPage) || 1;
-                                        const start = (discoveredPage - 1) * discoveredPerPage;
-                                        const end = start + discoveredPerPage;
-                                        const pageItems = discoveredPeers.slice(start, end);
-                                        return (
-                                            <>
-                                                {pageItems.map((peer) => (
-                                                    <div
-                                                        key={peer.instanceId}
-                                                        className={`bg-card/60 rounded-xl p-4 border border-border-subtle/40 shadow-2xl w-full h-80 aspect-square flex flex-col justify-between break-words whitespace-normal
-                                                        ${connectingPeerId === peer.instanceId ? 'connecting-animation' : ''}`}
-                                                    >
-                                                        <div className="flex justify-center">
-                                                            <MdDevices className="text-blue-400 text-6xl" />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <h3 className="text-lg font-semibold text-content leading-tight break-words whitespace-normal">{peer.peerName}</h3>
-                                                            <p className="text-content-muted text-sm break-words whitespace-normal">ID: {peer.instanceId}</p>
-                                                            <p className="text-content-dim text-xs break-words whitespace-normal">IP: {peer.ipAddress}</p>
-                                                        </div>
-                                                        <div className="flex flex-col gap-4 justify-between items-center pt-2">
-                                                            <p className="text-content-dim text-xs">Last: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
-                                                            <button
-                                                                className="modern-button ml-4 py-1 px-3 text-content font-bold rounded-lg shadow-md text-sm"
-                                                                onClick={() => handleConnect(peer)}
-                                                                disabled={connectingPeerId === peer.instanceId}
-                                                            >
-                                                                {connectingPeerId === peer.instanceId ? (
-                                                                    <span className="flex items-center justify-center">
-                                                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-content" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                                        </svg>
-                                                                        Connecting...
-                                                                    </span>
-                                                                ) : (
-                                                                    "Connect"
-                                                                )}
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-
-                                                {totalPages > 1 && (
-                                                    <div className="col-span-full flex justify-between items-center p-2 mt-4 border-t border-border-subtle bg-card/30 rounded">
-                                                        <div className="text-sm text-content-muted">
-                                                            Showing {Math.min(start + 1, total)} to {Math.min(end, total)} of {total} items
-                                                        </div>
-                                                        <div className="flex items-center space-x-2">
-                                                            <button
-                                                                onClick={() => setDiscoveredPage(prev => Math.max(prev - 1, 1))}
-                                                                disabled={discoveredPage === 1}
-                                                                className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
-                                                                aria-label="Previous Page"
-                                                            >
-                                                                {'<'}
-                                                            </button>
-                                                            <div className="text-sm text-content-secondary">{discoveredPage} / {totalPages}</div>
-                                                            <button
-                                                                onClick={() => setDiscoveredPage(prev => Math.min(prev + 1, totalPages))}
-                                                                disabled={discoveredPage === totalPages}
-                                                                className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
-                                                                aria-label="Next Page"
-                                                            >
-                                                                {'>'}
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </>
-                                        );
-                                    })()}
-                                </div>
+                            <div className="overflow-y-auto rounded-xl border border-border-subtle/40 divide-y divide-border-subtle/30">
+                                {renderDiscoveredPeers.map((peer) => (
+                                    <div
+                                        key={peer.instanceId}
+                                        className={`flex items-center gap-3 px-4 py-3 bg-card/60 min-h-[64px] ${connectingPeerId === peer.instanceId ? 'connecting-animation' : ''}`}
+                                    >
+                                        <MdDevices className="text-blue-400 text-2xl shrink-0" />
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-medium text-content leading-tight truncate">{peer.peerName}</p>
+                                            <p className="text-xs text-content-dim">{peer.ipAddress} · {new Date(peer.lastSeen).toLocaleTimeString()}</p>
+                                        </div>
+                                        <button
+                                            className="modern-button py-2 px-4 text-content font-bold rounded-lg shadow-md text-sm shrink-0"
+                                            onClick={() => handleConnect(peer)}
+                                            disabled={connectingPeerId === peer.instanceId}
+                                        >
+                                            {connectingPeerId === peer.instanceId ? (
+                                                <span className="flex items-center gap-2">
+                                                    <svg className="animate-spin h-4 w-4 text-content" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    Connecting...
+                                                </span>
+                                            ) : 'Connect'}
+                                        </button>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
                 )}
+            </div>
+
+            {/* ── DESKTOP layout (≥ md) ── */}
+            <div className="hidden md:flex md:flex-col md:flex-1">
+
+                {/* Connected Peers Section */}
+                {connectedPeers.length > 0 && (
+                    <div className="mb-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6 justify-items-center">
+                            {(() => {
+                                const total = connectedPeers.length;
+                                const totalPages = Math.ceil(total / connectedPerPage) || 1;
+                                const start = (connectedPage - 1) * connectedPerPage;
+                                const end = start + connectedPerPage;
+                                const pageItems = connectedPeers.slice(start, end);
+                                return (
+                                    <>
+                                        {pageItems.map((peer) => (
+                                            <div key={peer.instanceId} className="relative bg-card/60 h-64 rounded-xl p-4 border border-green-700/40 shadow-2xl w-full aspect-square flex flex-col justify-between break-words">
+                                                <div className="space-y-1 flex flex-col items-center text-center">
+                                                    <MdDevices className="text-green-400 text-6xl mb-1" />
+                                                    <h3 className="text-lg font-semibold text-content leading-tight break-words">{peer.peerName} <span className="text-green-400 text-sm">(Connected)</span></h3>
+                                                    <p className="text-content-muted text-sm break-words">ID: {peer.instanceId}</p>
+                                                </div>
+                                                <div className="flex flex-col items-center w-full justify-between pt-2 gap-2">
+                                                    <p className="text-content-dim text-xs">Last active: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
+                                                    <button
+                                                        onClick={() => handleDisconnect(peer)}
+                                                        className="border border-red-600 text-red-600 px-3 py-1 rounded-md hover:bg-red-600 hover:text-content transition-colors text-sm"
+                                                    >
+                                                        Disconnect
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {totalPages > 1 && (
+                                            <div className="col-span-full flex justify-between items-center p-2 mt-4 border-t border-border-subtle bg-card/30 rounded">
+                                                <div className="text-sm text-content-muted">
+                                                    Showing {Math.min(start + 1, total)} to {Math.min(end, total)} of {total} items
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <button
+                                                        onClick={() => setConnectedPage(prev => Math.max(prev - 1, 1))}
+                                                        disabled={connectedPage === 1}
+                                                        className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
+                                                        aria-label="Previous Page"
+                                                    >{'<'}</button>
+                                                    <div className="text-sm text-content-secondary">{connectedPage} / {totalPages}</div>
+                                                    <button
+                                                        onClick={() => setConnectedPage(prev => Math.min(prev + 1, totalPages))}
+                                                        disabled={connectedPage === totalPages}
+                                                        className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
+                                                        aria-label="Next Page"
+                                                    >{'>'}</button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                )}
+
+                {/* Discovered Peers Section */}
+                <div className="flex-1 flex flex-col">
+                    {(connectedPeers.length == 0 || isDiscovering) && (
+                        <div className="flex-1 overflow-y-auto min-h-60 border-t border-border-subtle/50 md:border md:rounded-2xl md:shadow-xl p-3 md:p-6 relative">
+                            {isDiscovering && renderDiscoveredPeers.length === 0 && (
+                                <div className="absolute inset-0 z-40 flex items-center justify-center bg-black bg-opacity-30">
+                                    <div className="p-6 bg-transparent rounded flex flex-col items-center">
+                                        <ThreeCircles
+                                            visible={true}
+                                            height="100"
+                                            width="100"
+                                            color="oklch(49.6% 0.265 301.924)"
+                                            ariaLabel="three-circles-loading"
+                                            wrapperStyle={{}}
+                                            wrapperClass=""
+                                        />
+                                        <p className="text-content text-lg mt-4 text-center">Searching for peers
+                                            <span className="ml-2">{ellipsis}</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                            {renderDiscoveredPeers.length === 0 && !isDiscovering ? (
+                                <div className="flex flex-col items-center justify-center h-full text-center">
+                                    <div className="mb-8">
+                                        <img src="/src/assets/images/location-search_nesh.svg" alt="Location Search" className="max-w-xs w-full" />
+                                    </div>
+                                    <p className="text-content-muted text-xl mb-8">
+                                        No peers detected yet.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="relative">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-6 justify-items-center">
+                                        {(() => {
+                                            const total = renderDiscoveredPeers.length;
+                                            const totalPages = Math.ceil(total / discoveredPerPage) || 1;
+                                            const start = (discoveredPage - 1) * discoveredPerPage;
+                                            const end = start + discoveredPerPage;
+                                            const pageItems = renderDiscoveredPeers.slice(start, end);
+                                            return (
+                                                <>
+                                                    {pageItems.map((peer) => (
+                                                        <div
+                                                            key={peer.instanceId}
+                                                            className={`bg-card/60 rounded-xl p-4 border border-border-subtle/40 shadow-2xl w-full h-80 aspect-square flex flex-col justify-between break-words whitespace-normal
+                                                            ${connectingPeerId === peer.instanceId ? 'connecting-animation' : ''}`}
+                                                        >
+                                                            <div className="flex justify-center">
+                                                                <MdDevices className="text-blue-400 text-6xl" />
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <h3 className="text-lg font-semibold text-content leading-tight break-words whitespace-normal">{peer.peerName}</h3>
+                                                                <p className="text-content-muted text-sm break-words whitespace-normal">ID: {peer.instanceId}</p>
+                                                                <p className="text-content-dim text-xs break-words whitespace-normal">IP: {peer.ipAddress}</p>
+                                                            </div>
+                                                            <div className="flex flex-col gap-4 justify-between items-center pt-2">
+                                                                <p className="text-content-dim text-xs">Last: {new Date(peer.lastSeen).toLocaleTimeString()}</p>
+                                                                <button
+                                                                    className="modern-button ml-4 py-1 px-3 text-content font-bold rounded-lg shadow-md text-sm"
+                                                                    onClick={() => handleConnect(peer)}
+                                                                    disabled={connectingPeerId === peer.instanceId}
+                                                                >
+                                                                    {connectingPeerId === peer.instanceId ? (
+                                                                        <span className="flex items-center justify-center">
+                                                                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-content" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                            </svg>
+                                                                            Connecting...
+                                                                        </span>
+                                                                    ) : (
+                                                                        "Connect"
+                                                                    )}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    {totalPages > 1 && (
+                                                        <div className="col-span-full flex justify-between items-center p-2 mt-4 border-t border-border-subtle bg-card/30 rounded">
+                                                            <div className="text-sm text-content-muted">
+                                                                Showing {Math.min(start + 1, total)} to {Math.min(end, total)} of {total} items
+                                                            </div>
+                                                            <div className="flex items-center space-x-2">
+                                                                <button
+                                                                    onClick={() => setDiscoveredPage(prev => Math.max(prev - 1, 1))}
+                                                                    disabled={discoveredPage === 1}
+                                                                    className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
+                                                                    aria-label="Previous Page"
+                                                                >{'<'}</button>
+                                                                <div className="text-sm text-content-secondary">{discoveredPage} / {totalPages}</div>
+                                                                <button
+                                                                    onClick={() => setDiscoveredPage(prev => Math.min(prev + 1, totalPages))}
+                                                                    disabled={discoveredPage === totalPages}
+                                                                    className="px-2 py-1 text-content-secondary hover:text-content disabled:opacity-50 transition-colors"
+                                                                    aria-label="Next Page"
+                                                                >{'>'}</button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
             </div>
         </div >
     );
