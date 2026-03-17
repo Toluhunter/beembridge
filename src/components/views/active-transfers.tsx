@@ -2,26 +2,10 @@ import { FaFile, FaFolder, FaHashtag } from "react-icons/fa";
 import { FiChevronDown, FiChevronRight, FiX } from "react-icons/fi";
 import React, { useState, useMemo } from 'react';
 import { useMockTransferEngine } from '../../utils/mockTransfers.js';
+import { useAppContext, ActiveTransferDisplayItem } from '../../context/AppContext.js';
 
-export interface ActiveTransferDisplayItem extends Progress {
-    status: 'pending' | 'in-progress' | 'completed' | 'failed' | 'cancelled';
-}
-
-export type Progress = {
-    fileId: string;
-    fileName: string;
-    totalBytes: number;
-    transferredBytes: number;
-    percentage: number;
-    speedKbps?: number;
-    parentId?: string;
-    rootDir?: string;
-}
-
-interface ActiveTransferViewProps {
-    activeTransfers: ActiveTransferDisplayItem[],
-    hashingProgress: { [key: string]: number }
-}
+// Re-export for any other files that import these types from this module
+export type { ActiveTransferDisplayItem, Progress } from '../../context/AppContext.js';
 
 const formatSpeed = (kbps: number): string => {
     if (kbps >= 1024 * 1024) return `${(kbps / 1024 / 1024).toFixed(1)} GB/s`;
@@ -128,13 +112,14 @@ const TransferRow = ({
 };
 
 // ─── Main view ────────────────────────────────────────────────────────────────
-export const ActiveTransferView: React.FC<ActiveTransferViewProps> = ({ activeTransfers, hashingProgress }) => {
+export const ActiveTransferView: React.FC = () => {
+    const { activeTransfers, hashingProgress, mockMode } = useAppContext();
     const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
-    const useMock = activeTransfers.length === 0 && Object.keys(hashingProgress).length === 0;
-    const { mockActiveTransfers, mockHashingProgress } = useMockTransferEngine(useMock);
 
-    const renderActiveTransfers = useMock ? mockActiveTransfers : activeTransfers;
-    const renderHashingProgress = useMock ? mockHashingProgress : hashingProgress;
+    const { mockActiveTransfers, mockHashingProgress } = useMockTransferEngine(mockMode);
+
+    const renderActiveTransfers = mockMode ? mockActiveTransfers : activeTransfers;
+    const renderHashingProgress = mockMode ? mockHashingProgress : hashingProgress;
 
     const { groupedTransfers, individualTransfers } = useMemo(() => {
         const grouped: Record<string, ActiveTransferDisplayItem[]> = {};

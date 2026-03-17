@@ -1,33 +1,30 @@
 import React, { useState, useEffect } from "react";
 import { FiTrash2, FiPlus } from 'react-icons/fi';
-import { DiscoveredPeer } from "./peers.js";
-import { GetFileStats, OpenDirectoryDialog, OpenFileDialog } from "../../../wailsjs/go/main/App.js";
-import { OnFileDrop, OnFileDropOff } from "../../../wailsjs/runtime/runtime.js";
-import { main } from "../../../wailsjs/go/models.js";
-
+import { invoke } from '@tauri-apps/api/core';
+import { useAppContext, SelectedItem, DiscoveredPeer } from '../../context/AppContext.js';
 
 interface ExplorerViewProps {
-    selectedFiles: main.SelectedItem[];
-    onAddFiles: (files: main.SelectedItem[]) => void;
-    onRemoveFiles: (filesToRemove: main.SelectedItem[]) => void;
-    connectedPeers: DiscoveredPeer[];
-    onSendFilesToPeers: (files: main.SelectedItem[], targetPeers: DiscoveredPeer[]) => void;
+    onAddFiles: (files: SelectedItem[]) => void;
+    onRemoveFiles: (filesToRemove: SelectedItem[]) => void;
+    onSendFilesToPeers: (files: SelectedItem[], targetPeers: DiscoveredPeer[]) => void;
 }
 
-export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAddFiles, onRemoveFiles, connectedPeers, onSendFilesToPeers }) => {
+export const ExplorerView: React.FC<ExplorerViewProps> = ({ onAddFiles, onRemoveFiles, onSendFilesToPeers }) => {
+    const { selectedFiles, connectedPeers } = useAppContext();
+
     const [showSendModal, setShowSendModal] = useState(false);
     const [selectedPeerForSending, setSelectedPeerForSending] = useState<DiscoveredPeer | null>(null);
     const [selectedItemsForRemoval, setSelectedItemsForRemoval] = useState<Set<string>>(new Set());
-    const [sortColumn, setSortColumn] = useState<keyof main.SelectedItem | null>('name');
+    const [sortColumn, setSortColumn] = useState<keyof SelectedItem | null>('name');
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 5;
 
     const handleOpenFile = async () => {
         try {
-            const filePaths = await OpenFileDialog();
+            const filePaths = await invoke<string[]>('open_file_dialog');
             if (filePaths && filePaths.length > 0) {
-                const files = await GetFileStats(filePaths);
+                const files = await invoke<SelectedItem[]>('get_file_stats', { paths: filePaths });
                 onAddFiles(files);
             }
         } catch (error) {
@@ -73,9 +70,9 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
 
     const handleAddDirectoryClick = async () => {
         try {
-            const dirPath = await OpenDirectoryDialog();
+            const dirPath = await invoke<string | null>('open_directory_dialog');
             if (dirPath) {
-                const files = await GetFileStats([dirPath]);
+                const files = await invoke<SelectedItem[]>('get_file_stats', { paths: [dirPath] });
                 onAddFiles(files);
             }
         } catch (error) {
@@ -101,7 +98,7 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
         setSelectedItemsForRemoval(new Set());
     };
 
-    const getType = (file: main.SelectedItem): string => {
+    const getType = (file: SelectedItem): string => {
         if (file.isDirectory) return 'Folder';
         const parts = file.name.split('.');
         if (parts.length > 1) {
@@ -110,7 +107,7 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
         return 'File';
     };
 
-    const handleSort = (column: keyof main.SelectedItem | 'isDirectory') => {
+    const handleSort = (column: keyof SelectedItem) => {
         if (sortColumn === column) {
             setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
         } else {
@@ -161,28 +158,7 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
         }
     }, [selectedFiles.length, totalPages, currentPage]);
 
-    useEffect(() => {
-        const cb = async (_x: number, _y: number, paths: string[]) => {
-            try {
-                if (paths && paths.length > 0) {
-                    const files = await GetFileStats(paths);
-                    onAddFiles(files);
-                }
-            } catch (err) {
-                console.error('Error handling dropped files:', err);
-            }
-        };
-
-        OnFileDrop(cb, true);
-
-        return () => {
-            try {
-                OnFileDropOff();
-            } catch (err) {
-                // Ignore errors during unmount cleanup
-            }
-        };
-    }, [onAddFiles]);
+    // TODO: Wire up Tauri drag-and-drop via @tauri-apps/plugin-drag-drop when plugin is added
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -197,7 +173,6 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ selectedFiles, onAdd
                 <div
                     className="border border-dashed border-border rounded-lg flex flex-col items-center justify-center text-content-dim p-6 w-full"
                     id="drop-zone"
-                    style={{ ["--wails-drop-target" as any]: "drop" } as React.CSSProperties}
                 >
                     <svg className="w-12 h-12 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>

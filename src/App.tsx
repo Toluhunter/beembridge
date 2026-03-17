@@ -1,32 +1,34 @@
 'use client';
-import './App.css'; // Import global styles
-import React, { useEffect, useState } from 'react'; // Import useRef for file input
+import './App.css';
+import React, { useEffect, useState } from 'react';
 import { PeerView } from './components/views/peers.js';
-import { DiscoveredPeer } from './components/views/peers.js';
-import { ExplorerView, } from './components/views/explorer.js';
+import { ExplorerView } from './components/views/explorer.js';
 import { TransferHistoryView } from './components/views/transfer-history.js';
-import { ActiveTransferView, ActiveTransferDisplayItem } from './components/views/active-transfers.js';
+import { ActiveTransferView } from './components/views/active-transfers.js';
 import { SettingsView } from './components/views/settings.js';
 import { Sidebar, SidebarItem } from './components/shared/sidebar.js';
-import * as runtime from '../wailsjs/runtime/runtime.js';
-import { InitiateFileTransfer } from '../wailsjs/go/main/App.js';
-import { main } from '../wailsjs/go/models.js';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Footer } from './components/shared/footer.js';
 import { BottomNav } from './components/shared/bottom-nav.js';
+import { AppProvider, useAppContext, SelectedItem, DiscoveredPeer, ActiveTransferDisplayItem } from './context/AppContext.js';
 
-// Main App Component
-const App = () => {
+// ─── Inner component (has access to context) ──────────────────────────────────
+
+const AppContent = () => {
     const [activeView, setActiveView] = useState<SidebarItem['id']>('peers');
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false); // State for sidebar collapse
-    const [selectedFiles, setSelectedFiles] = useState<main.SelectedItem[]>([]);
-    const [connectedPeers, setConnectedPeers] = useState<DiscoveredPeer[]>([]);
-    const [userName, setUserName] = useState("BeemBridge User"); // Made userName mutable
-    const [userId, setUserId] = useState("BB_USER_1234567890"); // Made userId mutable
-    const [storagePath, setStoragePath] = useState<string>("");
-    const [activeTransfers, setActiveTransfers] = useState<ActiveTransferDisplayItem[]>([]);
-    const [hashingProgress, setHashingProgress] = useState<{ [key: string]: number }>({});
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
-    const handleAddSelectedFiles = (newFiles: main.SelectedItem[]) => {
+    const {
+        userName,
+        userId,
+        selectedFiles,
+        setSelectedFiles,
+        setActiveTransfers,
+        setHashingProgress,
+    } = useAppContext();
+
+    const handleAddSelectedFiles = (newFiles: SelectedItem[]) => {
         const uniqueNewFiles = newFiles.filter(newFile =>
             !selectedFiles.some(existingFile =>
                 existingFile.name === newFile.name && existingFile.size === newFile.size
@@ -35,7 +37,7 @@ const App = () => {
         setSelectedFiles(prevFiles => [...prevFiles, ...uniqueNewFiles]);
     };
 
-    const handleRemoveSelectedFiles = (filesToRemove: main.SelectedItem[]) => {
+    const handleRemoveSelectedFiles = (filesToRemove: SelectedItem[]) => {
         setSelectedFiles(prevFiles =>
             prevFiles.filter(existingFile =>
                 !filesToRemove.some(fileToRemove =>
@@ -45,88 +47,85 @@ const App = () => {
         );
     };
 
-    const handleSendFilesToPeers = (files: main.SelectedItem[], targetPeers: DiscoveredPeer[]) => {
+    const handleSendFilesToPeers = (files: SelectedItem[], targetPeers: DiscoveredPeer[]) => {
         if (targetPeers.length > 0) {
             const peerID = targetPeers[0].instanceId;
-            const itemsToSend = files.map(f => main.SelectedItem.createFrom(f));
-            InitiateFileTransfer(peerID, itemsToSend);
+            invoke('initiate_file_transfer', { peerId: peerID, items: files });
         }
         setActiveView('active-transfers');
-        setSelectedFiles([]); // Clear selected files after sending
-    };
-
-    const handleUpdateUserNameInMainProcess = async (newName: string) => {
-        // TODO: Implement with Tauri
-        return false;
-    };
-
-    const handleGenerateNewUserIdInMainProcess = async () => {
-        // TODO: Implement with Tauri
-    };
-
-    // function to handle setting of storage path
-    const handleSetStoragePath = async () => {
-        // TODO: Implement with Tauri
+        setSelectedFiles([]);
     };
 
     const toggleSidebar = () => {
-        setIsSidebarCollapsed(!isSidebarCollapsed);
+        setIsSidebarCollapsed(prev => !prev);
     };
 
     useEffect(() => {
-        runtime.EventsOn("onProgressUpdate", (progress) => {
-            setActiveTransfers(prevTransfers => {
-                const existingIndex = prevTransfers.findIndex(t => t.fileId === progress.fileId);
+        let unlistenProgress: (() => void) | undefined;
+        let unlistenHashing: (() => void) | undefined;
+        let unlistenComplete: (() => void) | undefined;
 
-                let derivedStatus: ActiveTransferDisplayItem['status'] = 'in-progress';
-                if (progress.percentage >= 100) {
-                    derivedStatus = 'completed';
-                } else if (progress.percentage < 0) { // Assuming negative indicates failure
-                    derivedStatus = 'failed';
-                } else if (progress.percentage === 0 && progress.transferredBytes === 0) {
-                    derivedStatus = 'pending';
-                }
+        const setup = async () => {
+            unlistenProgress = await listen<ActiveTransferDisplayItem>('onProgressUpdate', ({ payload: progress }) => {
+                setActiveTransfers(prevTransfers => {
+                    const existingIndex = prevTransfers.findIndex(t => t.fileId === progress.fileId);
 
-                const updatedDisplayItem: ActiveTransferDisplayItem = { ...progress, status: derivedStatus };
+                    let derivedStatus: ActiveTransferDisplayItem['status'] = 'in-progress';
+                    if (progress.percentage >= 100) {
+                        derivedStatus = 'completed';
+                    } else if (progress.percentage < 0) {
+                        derivedStatus = 'failed';
+                    } else if (progress.percentage === 0 && progress.transferredBytes === 0) {
+                        derivedStatus = 'pending';
+                    }
 
-                if (existingIndex > -1) {
-                    const updatedTransfers = [...prevTransfers];
-                    updatedTransfers[existingIndex] = updatedDisplayItem;
-                    return updatedTransfers;
-                } else {
-                    return [...prevTransfers, updatedDisplayItem];
-                }
-            });
-        });
+                    const updatedDisplayItem: ActiveTransferDisplayItem = { ...progress, status: derivedStatus };
 
-        runtime.EventsOn("onHashingProgress", (progress) => {
-            if (progress.percentage === 100) {
-                setHashingProgress(prev => {
-                    const newProgress = { ...prev };
-                    delete newProgress[progress.filePath];
-                    return newProgress;
+                    if (existingIndex > -1) {
+                        const updatedTransfers = [...prevTransfers];
+                        updatedTransfers[existingIndex] = updatedDisplayItem;
+                        return updatedTransfers;
+                    } else {
+                        return [...prevTransfers, updatedDisplayItem];
+                    }
                 });
-            } else {
-                setHashingProgress(prev => ({ ...prev, [progress.filePath]: progress.percentage }));
-            }
-        });
-
-        runtime.EventsOn("onTransferComplete", (result) => {
-            setActiveTransfers(prevTransfers => {
-                const existingIndex = prevTransfers.findIndex(t => t.fileId === result.fileId);
-                if (existingIndex > -1) {
-                    const updatedTransfers = [...prevTransfers];
-                    updatedTransfers[existingIndex].status = result.status;
-                    if (result.status === 'completed') updatedTransfers[existingIndex].percentage = 100;
-                    return updatedTransfers;
-                }
-                return prevTransfers; // Or add if not present
             });
-        });
 
-    }, []); // Empty dependency array to run only once on mount
+            unlistenHashing = await listen<{ filePath: string; percentage: number }>('onHashingProgress', ({ payload: progress }) => {
+                if (progress.percentage === 100) {
+                    setHashingProgress(prev => {
+                        const next = { ...prev };
+                        delete next[progress.filePath];
+                        return next;
+                    });
+                } else {
+                    setHashingProgress(prev => ({ ...prev, [progress.filePath]: progress.percentage }));
+                }
+            });
 
-    // Function to simulate opening file explorer
+            unlistenComplete = await listen<{ fileId: string; status: ActiveTransferDisplayItem['status'] }>('onTransferComplete', ({ payload: result }) => {
+                setActiveTransfers(prevTransfers => {
+                    const existingIndex = prevTransfers.findIndex(t => t.fileId === result.fileId);
+                    if (existingIndex > -1) {
+                        const updatedTransfers = [...prevTransfers];
+                        updatedTransfers[existingIndex].status = result.status;
+                        if (result.status === 'completed') updatedTransfers[existingIndex].percentage = 100;
+                        return updatedTransfers;
+                    }
+                    return prevTransfers;
+                });
+            });
+        };
+
+        setup();
+
+        return () => {
+            unlistenProgress?.();
+            unlistenHashing?.();
+            unlistenComplete?.();
+        };
+    }, []);
+
     return (
         <div className="flex flex-col h-screen w-screen bg-canvas text-content overflow-hidden safe-top safe-sides">
             <div className="flex flex-1 overflow-hidden">
@@ -146,42 +145,27 @@ const App = () => {
                 {/* Main Content */}
                 <main className="flex-1 p-4 overflow-auto">
                     {activeView === 'peers' && (
-                        <PeerView
-                            connectedPeers={connectedPeers}
-                            setConnectedPeers={setConnectedPeers}
-                        />
+                        <PeerView />
                     )}
 
                     {activeView === 'history' && (
                         <TransferHistoryView />
                     )}
 
-                    {activeView === 'active-transfers' && ( // New view for Active Transfers
-                        <ActiveTransferView
-                            activeTransfers={activeTransfers}
-                            hashingProgress={hashingProgress}
-                        />
+                    {activeView === 'active-transfers' && (
+                        <ActiveTransferView />
                     )}
 
                     {activeView === 'explorer' && (
                         <ExplorerView
-                            selectedFiles={selectedFiles}
                             onAddFiles={handleAddSelectedFiles}
                             onRemoveFiles={handleRemoveSelectedFiles}
-                            connectedPeers={connectedPeers} // Pass connected peers
-                            onSendFilesToPeers={handleSendFilesToPeers} // Pass send files handler
+                            onSendFilesToPeers={handleSendFilesToPeers}
                         />
                     )}
 
                     {activeView === 'settings' && (
-                        <SettingsView
-                            currentUserName={userName}
-                            currentUserId={userId}
-                            storagePath={storagePath}
-                            onUpdateUserNameInMainProcess={handleUpdateUserNameInMainProcess}
-                            onGenerateNewUserId={handleGenerateNewUserIdInMainProcess}
-                            onSetStoragePath={handleSetStoragePath} // Pass the storage path handler`
-                        />
+                        <SettingsView />
                     )}
                 </main>
             </div>
@@ -196,5 +180,13 @@ const App = () => {
         </div>
     );
 };
+
+// ─── Root component wraps everything in the provider ──────────────────────────
+
+const App = () => (
+    <AppProvider>
+        <AppContent />
+    </AppProvider>
+);
 
 export default App;

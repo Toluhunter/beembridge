@@ -1,48 +1,34 @@
 import { RiRadarFill } from "react-icons/ri";
 import { useMockPeerDiscovery } from '../../utils/mockPeers';
-import {
-    StartPeerDiscovery,
-    StopPeerDiscovery,
-    GetDiscoveredPeers,
-    ConnectToPeer,
-    RespondToPeerConnectionRequest,
-    DisconnectFromPeer
-} from "../../../wailsjs/go/main/App.js"
-import location from "../../assets/images/location-search_nesh.svg"
-import { CircularProgress, MagnifyingGlass, ThreeCircles } from "react-loader-spinner";
-import * as runtime from '../../../wailsjs/runtime/runtime.js';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { ThreeCircles } from "react-loader-spinner";
 import { MdDevices } from "react-icons/md";
-import {
+import React, {
     useState,
     useEffect,
     useCallback
 } from "react";
+import { useAppContext, DiscoveredPeer } from '../../context/AppContext.js';
 
-
-interface DiscoveryMessage {
-    appId: string;
-    instanceId: string;
-    peerName: string;
-    tcpPort: number;
-    timestamp: number;
-}
-
-export interface DiscoveredPeer extends DiscoveryMessage {
-    lastSeen: string;
-    ipAddress: string;
-}
-
+// Re-export for any other files that import DiscoveredPeer from this module
+export type { DiscoveredPeer } from '../../context/AppContext.js';
 
 const PEER_DISCOVERY_TIME = 30 * 1000;
 
-interface PeerViewProps {
-    connectedPeers: DiscoveredPeer[];
-    setConnectedPeers: React.Dispatch<React.SetStateAction<DiscoveredPeer[]>>;
-}
-export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnectedPeers }) => {
-    const [discoveredPeers, setDiscoveredPeers] = useState<DiscoveredPeer[]>([]);
+export const PeerView: React.FC = () => {
+    const {
+        userName,
+        isDiscovering,
+        setIsDiscovering,
+        discoveredPeers,
+        setDiscoveredPeers,
+        connectedPeers,
+        setConnectedPeers,
+        mockMode,
+    } = useAppContext();
+
     const [incomingRequest, setIncomingRequest] = useState<{ peer: DiscoveredPeer, requestId: string, accept: () => void, reject: () => void } | null>(null);
-    const [isDiscovering, setIsDiscovering] = useState(false);
     const [connectingPeerId, setConnectingPeerId] = useState<string | null>(null);
     const [isDiscoveryButtonDisabled, setIsDiscoveryButtonDisabled] = useState(false);
     const [ellipsis, setEllipsis] = useState<string>('');
@@ -82,46 +68,27 @@ export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnected
         return () => window.removeEventListener('resize', updatePerPage);
     }, [updatePerPage]);
 
-    const generateDummyPeer = (i: number, connected = false): DiscoveredPeer => ({
-        appId: 'beembridge_dummy_app',
-        instanceId: `${connected ? 'connected' : 'discovered'}-dummy-${i}`,
-        peerName: `Dummy Peer ${i + 1}${connected ? ' (Connected)' : ''}`,
-        tcpPort: 9000 + i,
-        timestamp: Date.now(),
-        lastSeen: new Date(Date.now() - i * 60000).toISOString(),
-        ipAddress: `192.168.0.${10 + i}`
-    });
-
     useEffect(() => {
-        // Dummy data injection disabled
-    }, []);
+        if (!isDiscovering || mockMode) return;
 
-    useEffect(() => {
-        let intervalId: NodeJS.Timeout | undefined;
+        let unlisten: (() => void) | undefined;
 
-        if (isDiscovering) {
-            intervalId = setInterval(() => {
-                GetDiscoveredPeers().then(peers => {
-                    const filteredDiscoveries = peers.filter(
-                        newPeer => !connectedPeers.some(connectedPeer => connectedPeer.instanceId === newPeer.instanceId)
-                    );
-                    setDiscoveredPeers(filteredDiscoveries);
-                });
-            }, 1000);
-        }
+        listen<DiscoveredPeer[]>('onPeerDiscoveryUpdate', ({ payload: peers }) => {
+            const filtered = peers.filter(
+                p => !connectedPeers.some(c => c.instanceId === p.instanceId)
+            );
+            setDiscoveredPeers(filtered);
+        }).then(fn => { unlisten = fn; });
 
-        return () => {
-            if (intervalId) {
-                clearInterval(intervalId);
-            }
-        };
-    }, [isDiscovering, connectedPeers]);
+        return () => { unlisten?.(); };
+    }, [isDiscovering, mockMode, connectedPeers]);
 
     useEffect(() => {
         let idx = 0;
         let timer: NodeJS.Timeout | undefined;
 
-        if (isDiscovering && discoveredPeers.length === 0) {
+        const currentLength = mockMode ? 0 : discoveredPeers.length;
+        if (isDiscovering && currentLength === 0) {
             timer = setInterval(() => {
                 idx = (idx + 1) % 4;
                 setEllipsis('.'.repeat(idx));
@@ -133,7 +100,7 @@ export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnected
         return () => {
             if (timer) clearInterval(timer);
         };
-    }, [isDiscovering, discoveredPeers.length]);
+    }, [isDiscovering, discoveredPeers.length, mockMode]);
 
     const onConnectionResponse = useCallback((peer: DiscoveredPeer, status: string, reason?: string) => {
         console.log(`[RECEIVER] Connection status with ${peer.peerName}: ${status}${reason ? ` (${reason})` : ''}`);
@@ -156,78 +123,95 @@ export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnected
             });
         }
         setConnectingPeerId(null);
-    }, [setConnectedPeers]);
+    }, [setConnectedPeers, setDiscoveredPeers]);
 
     useEffect(() => {
-        const cleanupOnPeerConnectionRequest = runtime.EventsOn("onPeerConnectionRequest", (peer, requestId) => {
-            console.log(`[RECEIVER] Connection request from ${peer.peerName} (${requestId})`);
-            const accept = () => {
-                RespondToPeerConnectionRequest(requestId, true);
-                setIncomingRequest(null);
-            };
+        let unlistenConnectionRequest: (() => void) | undefined;
+        let unlistenConnectionResponse: (() => void) | undefined;
+        let unlistenPeerConnected: (() => void) | undefined;
 
-            const reject = (reason?: string) => {
-                RespondToPeerConnectionRequest(requestId, false);
-                setIncomingRequest(null);
-            };
-            setIncomingRequest({ peer, requestId, accept, reject });
-        });
+        const setup = async () => {
+            unlistenConnectionRequest = await listen<{ peer: DiscoveredPeer; requestId: string }>(
+                'onPeerConnectionRequest',
+                ({ payload: { peer, requestId } }) => {
+                    console.log(`[RECEIVER] Connection request from ${peer.peerName} (${requestId})`);
+                    const accept = () => {
+                        invoke('respond_to_peer_connection_request', { requestId, accept: true });
+                        setIncomingRequest(null);
+                    };
+                    const reject = () => {
+                        invoke('respond_to_peer_connection_request', { requestId, accept: false });
+                        setIncomingRequest(null);
+                    };
+                    setIncomingRequest({ peer, requestId, accept, reject });
+                }
+            );
 
-        const cleanupOnConnectionResponse = runtime.EventsOn("onConnectionResponse", (peer, status, reason) => {
-            onConnectionResponse(peer, status, reason);
-            setConnectingPeerId(null);
-        });
+            unlistenConnectionResponse = await listen<{ peer: DiscoveredPeer; status: string; reason?: string }>(
+                'onConnectionResponse',
+                ({ payload: { peer, status, reason } }) => {
+                    onConnectionResponse(peer, status, reason);
+                    setConnectingPeerId(null);
+                }
+            );
 
-        const cleanupOnPeerConnected = runtime.EventsOn("onPeerConnected", (peer) => {
-            console.log(`[RECEIVER] Connection status with ${peer.peerName}: accepted`);
-            onConnectionResponse(peer, 'accepted');
-        });
+            unlistenPeerConnected = await listen<DiscoveredPeer>(
+                'onPeerConnected',
+                ({ payload: peer }) => {
+                    console.log(`[RECEIVER] Connection status with ${peer.peerName}: accepted`);
+                    onConnectionResponse(peer, 'accepted');
+                }
+            );
+        };
+
+        setup();
 
         return () => {
-            if (cleanupOnPeerConnectionRequest) cleanupOnPeerConnectionRequest();
-            if (cleanupOnConnectionResponse) cleanupOnConnectionResponse();
-            if (cleanupOnPeerConnected) cleanupOnPeerConnected();
-        }
+            unlistenConnectionRequest?.();
+            unlistenConnectionResponse?.();
+            unlistenPeerConnected?.();
+        };
     }, [onConnectionResponse]);
 
     const startDiscovery = () => {
-        if (isDiscoveryButtonDisabled) {
-            return;
-        }
+        if (isDiscoveryButtonDisabled) return;
         setIsDiscoveryButtonDisabled(true);
         setTimeout(() => setIsDiscoveryButtonDisabled(false), 1200);
 
         if (isDiscovering) {
-            StopPeerDiscovery();
+            if (!mockMode) invoke('stop_peer_discovery');
             setIsDiscovering(false);
             setDiscoveredPeers([]);
         } else {
-            StartPeerDiscovery();
+            if (!mockMode) invoke('start_peer_discovery', { peerName: userName });
             setIsDiscovering(true);
         }
     };
 
-    const { mockDiscoveredPeers, simulateMockConnect } = useMockPeerDiscovery(isDiscovering);
-    const renderDiscoveredPeers = discoveredPeers.length > 0 ? discoveredPeers : mockDiscoveredPeers;
+    const { mockDiscoveredPeers, simulateMockConnect } = useMockPeerDiscovery(isDiscovering && mockMode);
+    const renderDiscoveredPeers = mockMode ? mockDiscoveredPeers : discoveredPeers;
 
     const handleConnect = (peerToConnect: DiscoveredPeer) => {
         setConnectingPeerId(peerToConnect.instanceId);
         console.log(`Attempting to connect to peer: ${peerToConnect.peerName} (${peerToConnect.instanceId})`);
-        if (!simulateMockConnect(peerToConnect, onConnectionResponse)) {
-            ConnectToPeer(peerToConnect);
+        if (mockMode) {
+            simulateMockConnect(peerToConnect, onConnectionResponse);
+        } else {
+            invoke('connect_to_peer', { peer: peerToConnect });
         }
     };
 
     const handleDisconnect = async (peerToDisconnect: DiscoveredPeer) => {
         setConnectingPeerId(null);
         console.log(`Attempting to disconnect from peer: ${peerToDisconnect.peerName} (${peerToDisconnect.instanceId})`);
-        try {
-            await DisconnectFromPeer(peerToDisconnect.instanceId);
-        } catch (err) {
-            console.error("DisconnectFromPeer error:", err);
-        } finally {
-            setConnectedPeers(prev => prev.filter(p => p.instanceId !== peerToDisconnect.instanceId));
+        if (!mockMode) {
+            try {
+                await invoke('disconnect_from_peer', { instanceId: peerToDisconnect.instanceId });
+            } catch (err) {
+                console.error("DisconnectFromPeer error:", err);
+            }
         }
+        setConnectedPeers(prev => prev.filter(p => p.instanceId !== peerToDisconnect.instanceId));
     };
 
     return (
@@ -556,6 +540,6 @@ export const PeerView: React.FC<PeerViewProps> = ({ connectedPeers, setConnected
                 </div>
 
             </div>
-        </div >
+        </div>
     );
 };
