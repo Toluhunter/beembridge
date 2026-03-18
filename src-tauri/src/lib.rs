@@ -1,7 +1,10 @@
+mod explorer;
+mod file_metadata;
 mod identity;
 mod transfer;
 
 use std::sync::{Arc, Mutex};
+use explorer::{open_file_dialog, open_directory_dialog, get_file_stats, pick_files_and_get_stats};
 use transfer::discovery::{
     get_discovered_peers, start_peer_discovery, stop_peer_discovery, DiscoveryState,
 };
@@ -21,6 +24,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(file_metadata::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
         .manage(discovery_state)
@@ -35,6 +39,10 @@ pub fn run() {
             get_storage_path,
             set_storage_path,
             pick_storage_folder,
+            open_file_dialog,
+            open_directory_dialog,
+            get_file_stats,
+            pick_files_and_get_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

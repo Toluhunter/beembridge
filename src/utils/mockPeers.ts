@@ -11,7 +11,7 @@ const MOCK_PEER_DATA: DiscoveredPeer[] = [
         peerName: "Alice's Laptop",
         tcpPort: 9001,
         timestamp: Date.now(),
-        lastSeen: new Date().toISOString(),
+        lastSeen: Date.now(),
         ipAddress: '192.168.1.42',
     },
     {
@@ -20,7 +20,7 @@ const MOCK_PEER_DATA: DiscoveredPeer[] = [
         peerName: "Bob's Desktop",
         tcpPort: 9002,
         timestamp: Date.now(),
-        lastSeen: new Date(Date.now() - 30000).toISOString(),
+        lastSeen: Date.now() - 30000,
         ipAddress: '192.168.1.87',
     },
     {
@@ -29,7 +29,7 @@ const MOCK_PEER_DATA: DiscoveredPeer[] = [
         peerName: "Carol's Phone",
         tcpPort: 9003,
         timestamp: Date.now(),
-        lastSeen: new Date(Date.now() - 90000).toISOString(),
+        lastSeen: Date.now() - 90000,
         ipAddress: '192.168.1.103',
     },
     {
@@ -38,7 +38,7 @@ const MOCK_PEER_DATA: DiscoveredPeer[] = [
         peerName: "Dave's Tablet",
         tcpPort: 9004,
         timestamp: Date.now(),
-        lastSeen: new Date(Date.now() - 120000).toISOString(),
+        lastSeen: Date.now() - 120000,
         ipAddress: '192.168.1.215',
     },
 ];
@@ -68,7 +68,7 @@ export function useMockPeerDiscovery(isDiscovering: boolean) {
             timerRef.current = window.setTimeout(() => {
                 if (isMountedRef.current) {
                     setMockDiscoveredPeers(
-                        MOCK_PEER_DATA.map(p => ({ ...p, lastSeen: new Date().toISOString(), timestamp: Date.now() }))
+                        MOCK_PEER_DATA.map(p => ({ ...p, lastSeen: Date.now(), timestamp: Date.now() }))
                     );
                 }
             }, DISCOVERY_DELAY_MS);

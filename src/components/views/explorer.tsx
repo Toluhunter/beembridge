@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { FiTrash2, FiPlus } from 'react-icons/fi';
 import { invoke } from '@tauri-apps/api/core';
+import { platform } from '@tauri-apps/plugin-os';
 import { useAppContext, SelectedItem, DiscoveredPeer } from '../../context/AppContext.js';
 
 interface ExplorerViewProps {
@@ -12,6 +13,7 @@ interface ExplorerViewProps {
 export const ExplorerView: React.FC<ExplorerViewProps> = ({ onAddFiles, onRemoveFiles, onSendFilesToPeers }) => {
     const { selectedFiles, connectedPeers } = useAppContext();
 
+    const [isAndroid] = useState(() => platform() === 'android');
     const [showSendModal, setShowSendModal] = useState(false);
     const [selectedPeerForSending, setSelectedPeerForSending] = useState<DiscoveredPeer | null>(null);
     const [selectedItemsForRemoval, setSelectedItemsForRemoval] = useState<Set<string>>(new Set());
@@ -22,9 +24,8 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ onAddFiles, onRemove
 
     const handleOpenFile = async () => {
         try {
-            const filePaths = await invoke<string[]>('open_file_dialog');
-            if (filePaths && filePaths.length > 0) {
-                const files = await invoke<SelectedItem[]>('get_file_stats', { paths: filePaths });
+            const files = await invoke<SelectedItem[]>('pick_files_and_get_stats');
+            if (files && files.length > 0) {
                 onAddFiles(files);
             }
         } catch (error) {
@@ -208,12 +209,14 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ onAddFiles, onRemove
                             >
                                 Add Files
                             </button>
-                            <button
-                                onClick={handleAddDirectoryClick}
-                                className="px-3 py-1.5 border border-border text-content-secondary hover:bg-raised rounded-lg text-sm font-semibold transition-colors"
-                            >
-                                Add Folder
-                            </button>
+                            {!isAndroid && (
+                                <button
+                                    onClick={handleAddDirectoryClick}
+                                    className="px-3 py-1.5 border border-border text-content-secondary hover:bg-raised rounded-lg text-sm font-semibold transition-colors"
+                                >
+                                    Add Folder
+                                </button>
+                            )}
                             <button
                                 onClick={handleSendClick}
                                 disabled={selectedFiles.length === 0}
@@ -354,7 +357,7 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ onAddFiles, onRemove
                                 <FiPlus className="text-3xl text-content-dim" />
                             </div>
                             <p className="text-base font-medium text-content-muted">No files added</p>
-                            <p className="text-sm text-content-dim mt-1">Tap Add Files or Add Folder below</p>
+                            <p className="text-sm text-content-dim mt-1">Tap Add Files{!isAndroid ? ' or Add Folder' : ''} below</p>
                         </div>
                     ) : (
                         selectedFiles.map((file) => (
@@ -386,12 +389,14 @@ export const ExplorerView: React.FC<ExplorerViewProps> = ({ onAddFiles, onRemove
                     >
                         + Add Files
                     </button>
-                    <button
-                        onClick={handleAddDirectoryClick}
-                        className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium text-content-secondary hover:bg-raised transition-colors"
-                    >
-                        Folder
-                    </button>
+                    {!isAndroid && (
+                        <button
+                            onClick={handleAddDirectoryClick}
+                            className="px-4 py-2.5 border border-border rounded-xl text-sm font-medium text-content-secondary hover:bg-raised transition-colors"
+                        >
+                            Folder
+                        </button>
+                    )}
                     {selectedFiles.length > 0 && (
                         <button
                             onClick={handleSendClick}
