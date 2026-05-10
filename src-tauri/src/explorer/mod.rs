@@ -13,21 +13,6 @@ pub struct SelectedItem {
     pub is_directory: bool,
 }
 
-/// Multi-file picker — all platforms.
-/// Desktop/iOS: returns absolute paths or file:// URIs.
-/// Android: returns content:// URIs.
-#[tauri::command]
-pub async fn open_file_dialog(app: AppHandle) -> Result<Vec<String>, String> {
-    let (tx, rx) = oneshot::channel();
-    app.dialog()
-        .file()
-        .pick_files(move |paths| {
-            let _ = tx.send(paths.unwrap_or_default());
-        });
-    let paths = rx.await.map_err(|e| e.to_string())?;
-    Ok(paths.iter().map(|p| p.to_string()).collect())
-}
-
 /// Folder picker.
 /// Desktop + iOS: native folder picker via pick_folder().
 /// Android: folder picker not supported in tauri-plugin-dialog — falls back to
