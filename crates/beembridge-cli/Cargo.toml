@@ -1,0 +1,18 @@
+[package]
+name = "beembridge-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Beembridge command-line interface."
+
+[[bin]]
+name = "beem"
+path = "src/main.rs"
+
+[dependencies]
+beembridge-core = { path = "../beembridge-core" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+dirs = "5"
+log = "0.4"
+env_logger = "0.11"

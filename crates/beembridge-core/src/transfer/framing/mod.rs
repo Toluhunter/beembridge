@@ -43,6 +43,7 @@ enum ParserState {
     WaitingPayload,
 }
 
+#[derive(Debug)]
 pub struct FrameParser {
     buffer: Vec<u8>,
     expected_header_len: u32,
@@ -191,5 +192,108 @@ impl FrameParser {
         }
 
         self.reset();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Header used across tests: a single string field.
+    fn sample_header() -> serde_json::Value {
+        json!({ "k": "v" })
+    }
+
+    #[test]
+    fn roundtrip_single() {
+        let bytes = build_framed_message(&sample_header(), None).unwrap();
+        let mut parser = FrameParser::new();
+        let msgs = parser.feed(&bytes).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].header.get("k").and_then(|v| v.as_str()), Some("v"));
+        assert!(msgs[0].payload.is_none());
+    }
+
+    #[test]
+    fn roundtrip_with_payload() {
+        let bytes = build_framed_message(&sample_header(), Some(b"hello")).unwrap();
+        let mut parser = FrameParser::new();
+        let msgs = parser.feed(&bytes).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].payload.as_deref(), Some(&b"hello"[..]));
+    }
+
+    #[test]
+    fn zero_length_payload_is_none() {
+        let bytes = build_framed_message(&sample_header(), Some(&[])).unwrap();
+        let mut parser = FrameParser::new();
+        let msgs = parser.feed(&bytes).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].payload.is_none());
+    }
+
+    #[test]
+    fn split_across_chunks() {
+        let bytes = build_framed_message(&sample_header(), Some(b"abc")).unwrap();
+        // Split somewhere inside the header bytes (after the 4-byte length prefix).
+        let mid = 4 + 1;
+        let (a, b) = bytes.split_at(mid);
+
+        let mut parser = FrameParser::new();
+        let first = parser.feed(a).unwrap();
+        assert!(first.is_empty(), "no message should emerge from a partial header");
+        let second = parser.feed(b).unwrap();
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].payload.as_deref(), Some(&b"abc"[..]));
+    }
+
+    #[test]
+    fn two_messages_one_feed() {
+        let mut bytes = build_framed_message(&json!({ "n": 1 }), None).unwrap();
+        bytes.extend(build_framed_message(&json!({ "n": 2 }), Some(b"x")).unwrap());
+
+        let mut parser = FrameParser::new();
+        let msgs = parser.feed(&bytes).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].header.get("n").and_then(|v| v.as_u64()), Some(1));
+        assert!(msgs[0].payload.is_none());
+        assert_eq!(msgs[1].header.get("n").and_then(|v| v.as_u64()), Some(2));
+        assert_eq!(msgs[1].payload.as_deref(), Some(&b"x"[..]));
+    }
+
+    #[test]
+    fn bad_header_errors() {
+        // 4-byte length = 3, followed by 3 bytes that are not valid JSON.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(b"@@@");
+
+        let mut parser = FrameParser::new();
+        assert!(parser.feed(&bytes).is_err());
+    }
+
+    #[test]
+    fn resync_after_bad_header() {
+        // A garbage frame (valid length prefix, invalid JSON body) immediately
+        // followed by a well-formed frame. After the error, reset_on_error should
+        // scan forward and lock onto the good frame.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(b"@@@");
+        let good = build_framed_message(&json!({ "ok": true }), None).unwrap();
+        bytes.extend_from_slice(&good);
+
+        let mut parser = FrameParser::new();
+        let err = parser.feed(&bytes);
+        assert!(err.is_err());
+        // feed() already called reset_on_error internally on the error path.
+        // Feeding nothing more should now surface the recovered good frame.
+        let recovered = parser.feed(&[]).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(
+            recovered[0].header.get("ok").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 }

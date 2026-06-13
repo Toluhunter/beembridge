@@ -1,0 +1,25 @@
+[package]
+name = "beembridge-core"
+version = "0.1.0"
+edition = "2024"
+description = "Core logic for Beembridge — peer discovery, transfer, identity, config. UI-agnostic."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+socket2 = { version = "0.5", features = ["all"] }
+if-addrs = "0.13"
+uuid = { version = "1", features = ["v4"] }
+log = "0.4"
+ed25519-dalek = { version = "2.2.0", features = ["pkcs8", "rand_core"] }
+rand = "0.10.1"
+base64 = "0.22.1"
+quinn = { version = "0.11.9", features = ["rustls-ring"] }
+rustls = { version = "0.23.40", features = ["ring"] }
+rcgen = { version = "0.14.8", features = ["ring"] }
+x509-cert = "0.2.5"
+
+[dev-dependencies]
+tempfile = "3"
